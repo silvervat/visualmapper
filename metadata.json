@@ -1,0 +1,5 @@
+{
+  "name": "Visual Mapper",
+  "description": "A powerful tool for annotating images and PDF drawings with labeled, color-coded shapes (rectangles and polygons). Features intelligent text sizing, shape alignment, and export capabilities.",
+  "requestFramePermissions": []
+}
