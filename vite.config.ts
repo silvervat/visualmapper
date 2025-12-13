@@ -4,7 +4,11 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+    const isProduction = mode === 'production';
+
     return {
+      // Base path for GitHub Pages deployment
+      base: isProduction ? '/visualmapper/' : '/',
       server: {
         port: 3000,
         host: '0.0.0.0',
@@ -17,6 +21,19 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
+        }
+      },
+      build: {
+        outDir: 'dist',
+        sourcemap: false,
+        minify: 'esbuild',
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              vendor: ['react', 'react-dom'],
+              pdf: ['pdfjs-dist', 'jspdf'],
+            }
+          }
         }
       }
     };

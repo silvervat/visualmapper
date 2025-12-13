@@ -1,7 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Use the ES module worker from esm.sh to match the module-based import of pdfjs-dist
-// @ts-ignore
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
 
 export const loadPdfPage = async (file: File, pageNumber: number = 1): Promise<{ image: HTMLImageElement; viewport: any } | null> => {
@@ -23,6 +22,7 @@ export const loadPdfPage = async (file: File, pageNumber: number = 1): Promise<{
     await page.render({
       canvasContext: context,
       viewport: viewport,
+      canvas: canvas,
     }).promise;
 
     const img = new Image();
