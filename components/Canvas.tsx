@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Shape, Point, ToolType, DragState, PolygonDrawState, Viewport, CoordinateReference, PageConfig, AxisConfig, GridConfig, RecentTool } from '../types';
-import { getPolygonLabelStats, constrainPoint, getDistance, getAlignmentGuides, doPolygonsIntersect, getPolygonArea, getPolygonPerimeter, getClosestSnapPoint, getMidpoint, getCentroid, transformPointToWorld, getBoundingBox, getPolygonPrimaryAngle, rotatePolygon, calculateSnapCorrection, getArrowHeadPoints, isPointInPolygon, pointToLineDistance, getAxisSystemPoints, checkPolygonSelfIntersection, wrapText } from '../utils/geometry';
+import { getPolygonLabelStats, constrainPoint, getDistance, getAlignmentGuides, doPolygonsIntersect, getPolygonArea, getPolygonPerimeter, getClosestSnapPoint, getMidpoint, getCentroid, transformPointToWorld, getBoundingBox, getPolygonPrimaryAngle, rotatePolygon, calculateSnapCorrection, getArrowHeadPoints, isPointInPolygon, pointToLineDistance, getAxisSystemPoints, checkPolygonSelfIntersection, wrapText, resolveAllOverlaps } from '../utils/geometry';
 import { COLORS, HANDLE_RADIUS, SNAP_THRESHOLD } from '../constants';
 import { ContextMenu } from './ContextMenu';
 import { Crop, HelpCircle } from 'lucide-react';
@@ -129,22 +129,28 @@ const Canvas: React.FC<CanvasProps> = ({
   const findImageEdge = (x: number, y: number): Point | null => { if (!offscreenCanvasRef.current) return null; const ctx = offscreenCanvasRef.current.getContext('2d'); if (!ctx) return null; const range = 10; const ix = Math.floor(x); const iy = Math.floor(y); const width = offscreenCanvasRef.current.width; const height = offscreenCanvasRef.current.height; if (ix < range || iy < range || ix >= width - range || iy >= height - range) return null; try { const imgData = ctx.getImageData(ix - range, iy - range, range * 2 + 1, range * 2 + 1); const data = imgData.data; let maxGradX = 0; let snapX = -1; let maxGradY = 0; let snapY = -1; const center = range; for (let i = 1; i < range * 2; i++) { const prev = (center * (range * 2 + 1) + (i - 1)) * 4; const curr = (center * (range * 2 + 1) + i) * 4; const diff = Math.abs((data[prev] + data[prev+1] + data[prev+2]) - (data[curr] + data[curr+1] + data[curr+2])); if (diff > maxGradX) { maxGradX = diff; snapX = i; } } for (let i = 1; i < range * 2; i++) { const prev = ((i - 1) * (range * 2 + 1) + center) * 4; const curr = (i * (range * 2 + 1) + center) * 4; const diff = Math.abs((data[prev] + data[prev+1] + data[prev+2]) - (data[curr] + data[curr+1] + data[curr+2])); if (diff > maxGradY) { maxGradY = diff; snapY = i; } } const threshold = 100; let resultX = x; let resultY = y; let snapped = false; if (maxGradX > threshold) { resultX = ix - range + snapX; snapped = true; } if (maxGradY > threshold) { resultY = iy - range + snapY; snapped = true; } return snapped ? { x: resultX, y: resultY } : null; } catch (e) { return null; } };
   const resolveCollision = (newShape: Shape) => { if (!preventOverlap || (newShape.type !== 'polygon' && newShape.type !== 'rectangle' && newShape.type !== 'square')) return true; const collisions = shapes.filter(s => s.id !== newShape.id && (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(newShape.points, s.points)); if (collisions.length > 0) return false; return true; };
   
-  const finishPolygon = (points: Point[]) => { 
-      if (points.length < 3) return; 
+  const finishPolygon = (points: Point[]) => {
+      if (points.length < 3) return;
       if (checkPolygonSelfIntersection(points, points[0])) {
           onShowAlert?.('warning', 'Viga', 'Jooned ei tohi ristuda!');
           return;
       }
 
-      const potentialShape = { points }; 
-      if (preventOverlap) { 
-          const hasCollision = shapes.some(s => (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(potentialShape.points, s.points)); 
-          if (hasCollision) { onShowAlert?.('warning', 'Viga', 'Kujundid ei tohi kattuda!'); return; } 
-      } 
-      const newShape: Shape = { id: Date.now().toString(), type: 'polygon', points: points, color: nextColor, label: `Ala ${nextAreaNumber}`, areaNumber: nextAreaNumber, fontSizeMode: 'auto', opacity: 0.4, strokeWidth: 2, textStyle: 'boxed', textColor: '#000000', textBgColor: '#ffffff' }; 
-      onShapeAdd(newShape); 
-      onSelect([newShape.id]); 
-      setPolyDraw({ isActive: false, points: [] }); 
+      let finalPoints = points;
+      if (preventOverlap) {
+          const staticPolygons = shapes
+              .filter(s => s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square')
+              .map(s => s.points);
+          const hasCollision = staticPolygons.some(sp => doPolygonsIntersect(points, sp));
+          if (hasCollision) {
+              // Auto-snap to adjacent edges instead of showing error
+              finalPoints = resolveAllOverlaps(points, staticPolygons);
+          }
+      }
+      const newShape: Shape = { id: Date.now().toString(), type: 'polygon', points: finalPoints, color: nextColor, label: `Ala ${nextAreaNumber}`, areaNumber: nextAreaNumber, fontSizeMode: 'auto', opacity: 0.4, strokeWidth: 2, textStyle: 'boxed', textColor: '#000000', textBgColor: '#ffffff' };
+      onShapeAdd(newShape);
+      onSelect([newShape.id]);
+      setPolyDraw({ isActive: false, points: [] });
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -671,13 +677,16 @@ const Canvas: React.FC<CanvasProps> = ({
                        onShapeDelete([dragState.shapeId]);
                        onShowAlert?.('warning', 'Ala liiga väike', 'Joonista suurem ala! Minimaalne suurus on 20x20 pikslit.');
                    } else {
-                       // Check for overlap if prevention is enabled
+                       // Check for overlap if prevention is enabled - auto-snap instead of error
                        if (preventOverlap) {
-                           const otherShapes = shapes.filter(s => s.id !== dragState.shapeId && (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square'));
-                           const hasCollision = otherShapes.some(s => doPolygonsIntersect(shape.points, s.points));
+                           const staticPolygons = shapes
+                               .filter(s => s.id !== dragState.shapeId && (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square'))
+                               .map(s => s.points);
+                           const hasCollision = staticPolygons.some(sp => doPolygonsIntersect(shape.points, sp));
                            if (hasCollision) {
-                               onShapeDelete([dragState.shapeId]);
-                               onShowAlert?.('warning', 'Alad kattuvad', 'Kujundid ei tohi kattuda! Joonista ala teisele kohale.');
+                               // Auto-snap to adjacent edges
+                               const adjustedPoints = resolveAllOverlaps(shape.points, staticPolygons);
+                               onShapeUpdate(dragState.shapeId, { points: adjustedPoints });
                            }
                        }
                    }
