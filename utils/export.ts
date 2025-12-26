@@ -1258,6 +1258,45 @@ DATA;
 
       const relPropId = entityId++;
       entities.push(`#${relPropId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${propSetId});`);
+
+      // ============================================
+      // ADD TEXT ANNOTATION FOR SPACE LABEL & AREA
+      // ============================================
+      const centroid = getCentroid(shape.points);
+      const centroidWorld = transformPoint(centroid);
+
+      // Create text content: "Ala 1\n12.50 m²"
+      const labelText = shape.label || `Space ${shape.id}`;
+      const areaText = areaSqM > 0 ? `${areaSqM.toFixed(2)} m2` : '';
+      const fullText = areaText ? `${labelText} - ${areaText}` : labelText;
+
+      // Text literal placement at centroid
+      const textPointId = entityId++;
+      entities.push(`#${textPointId}=IFCCARTESIANPOINT((${formatIfcFloat(centroidWorld.x * 1000)},${formatIfcFloat(centroidWorld.y * 1000)},50.));`);
+
+      const textAxisId = entityId++;
+      entities.push(`#${textAxisId}=IFCAXIS2PLACEMENT3D(#${textPointId},$,$);`);
+
+      const textLiteralId = entityId++;
+      entities.push(`#${textLiteralId}=IFCTEXTLITERALWITHEXTENT('${fullText}',#${textAxisId},.LEFT.,(1000.,500.),.BOTTOM_LEFT.);`);
+
+      // Text style
+      const textStyleId = entityId++;
+      const textRgb = hexToRgb(shape.textColor || '#000000');
+      const textColorId = entityId++;
+      entities.push(`#${textColorId}=IFCCOLOURRGB($,${formatIfcFloat(textRgb.r)},${formatIfcFloat(textRgb.g)},${formatIfcFloat(textRgb.b)});`);
+      entities.push(`#${textStyleId}=IFCTEXTSTYLE($,$,$,#${textColorId});`);
+
+      // Styled representation for text
+      const textRepId = entityId++;
+      entities.push(`#${textRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Annotation','Annotation',(#${textLiteralId}));`);
+
+      const textProdDefId = entityId++;
+      entities.push(`#${textProdDefId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${textRepId}));`);
+
+      // Create annotation element
+      const annotId = entityId++;
+      entities.push(`#${annotId}=IFCANNOTATION('${generateIfcGuid()}',#${ownerHistoryId},'${labelText}','${areaText}',$,#${spacePlacementId},#${textProdDefId});`);
     }
   }
 
