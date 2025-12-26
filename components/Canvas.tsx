@@ -896,7 +896,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 </g>
                              )}
                              {/* Side Lengths */}
-                             {shape.showSideLengths && pixelsPerMeter && (shape.type === 'polygon' || shape.type === 'rectangle') && (
+                             {shape.showSideLengths && pixelsPerMeter && (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square') && (
                                  <g pointerEvents="none">
                                      {shape.points.map((p1, i) => {
                                          const p2 = shape.points[(i + 1) % shape.points.length];
@@ -904,11 +904,39 @@ const Canvas: React.FC<CanvasProps> = ({
                                          const mid = getMidpoint(p1, p2);
                                          const center = getCentroid(shape.points);
                                          const dx = p2.x - p1.x; const dy = p2.y - p1.y;
+
+                                         // Calculate angle of the edge in degrees
+                                         let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+                                         // Keep text readable (not upside down)
+                                         if (angle > 90) angle -= 180;
+                                         if (angle < -90) angle += 180;
+
+                                         // Calculate perpendicular offset (away from center)
                                          let nx = -dy; let ny = dx;
                                          const len = Math.sqrt(nx*nx + ny*ny); if(len > 0) { nx /= len; ny /= len; }
                                          if (nx * (center.x - mid.x) + ny * (center.y - mid.y) < 0) { nx = -nx; ny = -ny; }
-                                         const offset = 15 / scale;
-                                         return <text key={i} x={mid.x + nx * offset} y={mid.y + ny * offset} fontSize={10/scale} fill={shape.textColor || 'black'} textAnchor="middle" dominantBaseline="middle" fontWeight="bold">{distM.toFixed(2)}</text>;
+                                         const offset = 12 / scale;
+                                         const textX = mid.x + nx * offset;
+                                         const textY = mid.y + ny * offset;
+
+                                         const label = distM < 1 ? `${(distM * 100).toFixed(0)} cm` : `${distM.toFixed(2)} m`;
+
+                                         return (
+                                             <text
+                                                 key={i}
+                                                 x={textX}
+                                                 y={textY}
+                                                 fontSize={10/scale}
+                                                 fill={shape.textColor || 'black'}
+                                                 textAnchor="middle"
+                                                 dominantBaseline="middle"
+                                                 fontWeight="bold"
+                                                 transform={`rotate(${angle}, ${textX}, ${textY})`}
+                                             >
+                                                 {label}
+                                             </text>
+                                         );
                                      })}
                                  </g>
                              )}
@@ -1187,17 +1215,41 @@ const Canvas: React.FC<CanvasProps> = ({
              {selectedIds.map(id => {
                  const s = shapes.find(sh => sh.id === id);
                  if (!s) return null;
-                 return s.points.map((p, i) => (
-                     <circle
-                        key={`${id}-handle-${i}`}
-                        cx={p.x}
-                        cy={p.y}
-                        r={HANDLE_RADIUS / scale}
-                        fill="white"
-                        stroke="#2563eb"
-                        strokeWidth={1.5 / scale}
-                     />
-                 ));
+                 return (
+                     <g key={`${id}-handles`}>
+                         {/* Vertex handles (corners) */}
+                         {s.points.map((p, i) => (
+                             <circle
+                                 key={`${id}-handle-${i}`}
+                                 cx={p.x}
+                                 cy={p.y}
+                                 r={HANDLE_RADIUS / scale}
+                                 fill="white"
+                                 stroke="#2563eb"
+                                 strokeWidth={1.5 / scale}
+                                 style={{ cursor: 'move' }}
+                             />
+                         ))}
+                         {/* Midpoint handles for polygons (to add new vertices) */}
+                         {(s.type === 'polygon' || s.type === 'rectangle') && s.points.map((p, i) => {
+                             const next = s.points[(i + 1) % s.points.length];
+                             const mid = getMidpoint(p, next);
+                             return (
+                                 <circle
+                                     key={`${id}-mid-${i}`}
+                                     cx={mid.x}
+                                     cy={mid.y}
+                                     r={(HANDLE_RADIUS - 2) / scale}
+                                     fill="#e0e7ff"
+                                     stroke="#2563eb"
+                                     strokeWidth={1 / scale}
+                                     strokeDasharray={`${2/scale} ${2/scale}`}
+                                     style={{ cursor: 'pointer' }}
+                                 />
+                             );
+                         })}
+                     </g>
+                 );
              })}
           </svg>
        </div>

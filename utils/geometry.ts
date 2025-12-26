@@ -412,7 +412,7 @@ export const getPolygonLabelStats = (points: Point[]) => {
   }
 
   const centroid = getCentroid(points);
-  
+
   let minDistToEdge = Infinity;
   for (let i = 0; i < points.length; i++) {
     const p1 = points[i];
@@ -422,28 +422,28 @@ export const getPolygonLabelStats = (points: Point[]) => {
   }
 
   const bbox = getBoundingBox(points);
-  const isVertical = bbox.height > bbox.width * 1.2; 
-  
-  let rotation = 0;
-  if (isVertical) {
-    rotation = -90; 
-  }
-
-  if (points.length >= 3) {
-      const angle = getPolygonPrimaryAngle(points) * 180 / Math.PI;
-      let normAngle = angle;
-      while (normAngle > 90) normAngle -= 180;
-      while (normAngle < -90) normAngle += 180;
-      
-      if (Math.abs(normAngle) < 10) rotation = 0;
-      else if (Math.abs(Math.abs(normAngle) - 90) < 10) rotation = -90;
-      else rotation = normAngle;
-  }
-
   const padding = 6;
   const safeRadius = Math.max(0, minDistToEdge - padding);
-  const maxFontSize = Math.max(8, safeRadius * 1.5); 
-  
+
+  // Calculate available space for horizontal vs vertical text
+  const horizontalSpace = bbox.width;
+  const verticalSpace = bbox.height;
+
+  // Default to horizontal (rotation = 0)
+  // Only rotate to vertical if height is significantly more than width
+  // AND horizontal space is too tight for text
+  let rotation = 0;
+
+  // Estimate minimum text width needed (roughly 80px for typical labels like "Ala 1")
+  const minTextWidth = 60;
+
+  if (horizontalSpace < minTextWidth && verticalSpace > horizontalSpace * 1.5) {
+    // Not enough horizontal space and more vertical space available - rotate
+    rotation = -90;
+  }
+
+  const maxFontSize = Math.max(8, safeRadius * 1.5);
+
   return {
     x: centroid.x,
     y: centroid.y,
