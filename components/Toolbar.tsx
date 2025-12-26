@@ -13,6 +13,7 @@ interface ToolbarProps {
   onLoadProject: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onExport: () => void;
   onExportPdf: () => void;
+  onOpenExportModal?: () => void;
   title: string;
   setTitle: (t: string) => void;
   description: string;
@@ -88,8 +89,8 @@ const ToolButton = ({
     </button>
 );
 
-const Toolbar: React.FC<ToolbarProps> = ({ 
-  currentTool, setTool, scale, setScale, onUpload, onSaveProject, onLoadProject, onExport, onExportPdf,
+const Toolbar: React.FC<ToolbarProps> = ({
+  currentTool, setTool, scale, setScale, onUpload, onSaveProject, onLoadProject, onExport, onExportPdf, onOpenExportModal,
   title, setTitle, description, setDescription, floor, setFloor, pixelsPerMeter, showArea, setShowArea, calibrationCount = 0,
   allowOutsideDraw, setAllowOutsideDraw, preventOverlap, setPreventOverlap, onUndo, onRedo, canUndo, canRedo,
   showCoords, setShowCoords, showDimensions, setShowDimensions, onManageCalibrations, onManageCoords,
@@ -163,8 +164,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
                 <input type="file" className="hidden" accept=".json" onChange={onLoadProject} />
              </label>
              <div className="h-3 w-px bg-gray-300 mx-1"></div>
-             <button onClick={onExport} className="p-1 hover:bg-gray-100 rounded text-gray-600" title="PNG Eksport"><Download size={14} /></button>
-             <button onClick={onExportPdf} className="p-1 hover:bg-gray-100 rounded text-gray-600" title="PDF Eksport"><FileText size={14} /></button>
+             <button onClick={onExport} className="p-1 hover:bg-gray-100 rounded text-gray-600" title="Kiire PNG Eksport"><Download size={14} /></button>
+             <button onClick={onOpenExportModal || onExportPdf} className="p-1 hover:bg-gray-100 rounded text-blue-600 bg-blue-50" title="Ekspordi (PDF, DXF, GeoJSON)"><FileText size={14} /></button>
          </div>
       </div>
 

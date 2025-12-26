@@ -18,7 +18,7 @@ interface CanvasProps {
   onShapeAdd: (shape: Shape) => void;
   onShapesAdd?: (shapes: Shape[]) => void;
   onShapeUpdate: (id: string, shape: Partial<Shape>) => void;
-  onShapesUpdate: (updates: { id: string; points: Point[] }[]) => void; 
+  onShapesUpdate: (updates: { id: string; points: Point[] }[]) => void;
   onShapeUpdateEnd: () => void;
   onShapeDelete: (ids: string[]) => void;
   selectedIds: string[];
@@ -51,6 +51,7 @@ interface CanvasProps {
   onUseRecentTool?: (tool: RecentTool) => void;
   defaultStyles?: Record<string, Partial<Shape>>;
   axisCreationConfig?: {type: 'x'|'y'|'both', configX: AxisConfig, configY?: AxisConfig} | null;
+  onShowAlert?: (type: 'error' | 'warning' | 'info', title: string, message: string) => void;
 }
 
 const DEFAULT_ICON = 'Elekter';
@@ -60,7 +61,7 @@ const Canvas: React.FC<CanvasProps> = ({
   selectedIds, onSelect, onDuplicate, onReorder, pixelsPerMeter, onMeasure, onApplyCrop, showArea, onToolChange, allowOutsideDraw,
   onCoordClick, onCoordEdit, onCoordMove, coordRefs, showCoords, showDimensions, title, description, floor, preventOverlap,
   bulletCounter, incrementBullet, pageConfig = { headerHeight: 60, footerHeight: 100, fontSizeScale: 1.0, showLogo: true }, snapToBackground,
-  gridConfig, onUpdateGridConfig, recentTools, onUseRecentTool, defaultStyles, axisCreationConfig
+  gridConfig, onUpdateGridConfig, recentTools, onUseRecentTool, defaultStyles, axisCreationConfig, onShowAlert
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -131,14 +132,14 @@ const Canvas: React.FC<CanvasProps> = ({
   const finishPolygon = (points: Point[]) => { 
       if (points.length < 3) return; 
       if (checkPolygonSelfIntersection(points, points[0])) {
-          alert("Jooned ei tohi ristuda!");
+          onShowAlert?.('warning', 'Viga', 'Jooned ei tohi ristuda!');
           return;
       }
 
       const potentialShape = { points }; 
       if (preventOverlap) { 
           const hasCollision = shapes.some(s => (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(potentialShape.points, s.points)); 
-          if (hasCollision) { alert("Kujundid ei tohi kattuda!"); return; } 
+          if (hasCollision) { onShowAlert?.('warning', 'Viga', 'Kujundid ei tohi kattuda!'); return; } 
       } 
       const newShape: Shape = { id: Date.now().toString(), type: 'polygon', points: points, color: nextColor, label: `Ala ${nextAreaNumber}`, areaNumber: nextAreaNumber, fontSizeMode: 'auto', opacity: 0.4, strokeWidth: 2, textStyle: 'boxed', textColor: '#000000', textBgColor: '#ffffff' }; 
       onShapeAdd(newShape); 
@@ -351,7 +352,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (dragState.mode === 'draw_rotate_line') { setRotateRefLine([worldPos, worldPos]); setDragState({ ...dragState, isDragging: true, startX: worldPos.x, startY: worldPos.y }); return; }
     if (tool === 'coords') { onCoordClick(worldPos); return; }
     if (tool === 'calibrate') { setMeasurePoints([worldPos, worldPos]); setDragState({ isDragging: true, startX: worldPos.x, startY: worldPos.y, mode: 'draw_calibrate' }); return; }
-    if (tool === 'measure_line') { if (!pixelsPerMeter) { alert("Palun kalibreeri joonis esmalt!"); return; } setArrowPreview([worldPos, worldPos]); setDragState({ isDragging: true, startX: worldPos.x, startY: worldPos.y, mode: 'draw_measure_line' }); return; }
+    if (tool === 'measure_line') { if (!pixelsPerMeter) { onShowAlert?.('info', 'Kalibreerimata', 'Palun kalibreeri joonis esmalt!'); return; } setArrowPreview([worldPos, worldPos]); setDragState({ isDragging: true, startX: worldPos.x, startY: worldPos.y, mode: 'draw_measure_line' }); return; }
     if (tool === 'crop') { setCropRect({ x: worldPos.x, y: worldPos.y, w: 0, h: 0 }); setDragState({ isDragging: true, startX: worldPos.x, startY: worldPos.y, mode: 'draw_crop' }); return; }
     if (tool === 'arrow') { setArrowPreview([worldPos, worldPos]); setDragState({ isDragging: true, startX: worldPos.x, startY: worldPos.y, mode: 'draw_arrow' }); return; }
     
@@ -737,7 +738,9 @@ const Canvas: React.FC<CanvasProps> = ({
           <svg
              width={image ? image.naturalWidth : 20000}
              height={image ? image.naturalHeight : 20000}
+             viewBox={`0 0 ${image ? image.naturalWidth : 20000} ${image ? image.naturalHeight : 20000}`}
              className="absolute top-0 left-0 overflow-visible"
+             style={{ background: 'transparent' }}
           >
              {shapes.map(shape => {
                  const isSelected = selectedIds.includes(shape.id);
