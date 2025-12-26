@@ -1150,21 +1150,26 @@ DATA;
       entities.push(`#${solidId}=IFCEXTRUDEDAREASOLID(#${profileId},#${axis2PlacementId},#${extrudeDirId},100.);`);
 
       // ============================================
-      // ADD COLOR STYLING
+      // ADD COLOR STYLING (IFC2X3 compatible)
       // ============================================
       const rgb = hexToRgb(shape.color || '#888888');
 
       const colorId = entityId++;
       entities.push(`#${colorId}=IFCCOLOURRGB($,${formatIfcFloat(rgb.r)},${formatIfcFloat(rgb.g)},${formatIfcFloat(rgb.b)});`);
 
-      const surfaceStyleRenderingId = entityId++;
-      entities.push(`#${surfaceStyleRenderingId}=IFCSURFACESTYLERENDERING(#${colorId},${formatIfcFloat(shape.opacity || 0.5)},$,$,$,$,$,$,.FLAT.);`);
+      // Surface style with shading (more compatible than rendering)
+      const surfaceShadingId = entityId++;
+      entities.push(`#${surfaceShadingId}=IFCSURFACESTYLESHADING(#${colorId});`);
 
       const surfaceStyleId = entityId++;
-      entities.push(`#${surfaceStyleId}=IFCSURFACESTYLE('${spaceName}',.BOTH.,(#${surfaceStyleRenderingId}));`);
+      entities.push(`#${surfaceStyleId}=IFCSURFACESTYLE('${spaceName}',.BOTH.,(#${surfaceShadingId}));`);
+
+      // Presentation style assignment (required by many viewers)
+      const presStyleId = entityId++;
+      entities.push(`#${presStyleId}=IFCPRESENTATIONSTYLEASSIGNMENT((#${surfaceStyleId}));`);
 
       const styledItemId = entityId++;
-      entities.push(`#${styledItemId}=IFCSTYLEDITEM(#${solidId},(#${surfaceStyleId}),$);`);
+      entities.push(`#${styledItemId}=IFCSTYLEDITEM(#${solidId},(#${presStyleId}),$);`);
       styledItemIds.push(styledItemId);
 
       // Shape representation

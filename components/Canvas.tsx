@@ -1118,6 +1118,71 @@ const Canvas: React.FC<CanvasProps> = ({
                  </g>
              )}
 
+             {/* Coordinate Reference Points */}
+             {showCoords && coordRefs.map((ref, i) => (
+                 <g key={`coord-${i}`}>
+                     {/* Outer ring */}
+                     <circle
+                         cx={ref.pixel.x}
+                         cy={ref.pixel.y}
+                         r={12 / scale}
+                         fill="white"
+                         stroke="#dc2626"
+                         strokeWidth={3 / scale}
+                     />
+                     {/* Inner dot */}
+                     <circle
+                         cx={ref.pixel.x}
+                         cy={ref.pixel.y}
+                         r={4 / scale}
+                         fill="#dc2626"
+                     />
+                     {/* Crosshair lines */}
+                     <line
+                         x1={ref.pixel.x - 18 / scale}
+                         y1={ref.pixel.y}
+                         x2={ref.pixel.x - 6 / scale}
+                         y2={ref.pixel.y}
+                         stroke="#dc2626"
+                         strokeWidth={2 / scale}
+                     />
+                     <line
+                         x1={ref.pixel.x + 6 / scale}
+                         y1={ref.pixel.y}
+                         x2={ref.pixel.x + 18 / scale}
+                         y2={ref.pixel.y}
+                         stroke="#dc2626"
+                         strokeWidth={2 / scale}
+                     />
+                     <line
+                         x1={ref.pixel.x}
+                         y1={ref.pixel.y - 18 / scale}
+                         x2={ref.pixel.x}
+                         y2={ref.pixel.y - 6 / scale}
+                         stroke="#dc2626"
+                         strokeWidth={2 / scale}
+                     />
+                     <line
+                         x1={ref.pixel.x}
+                         y1={ref.pixel.y + 6 / scale}
+                         x2={ref.pixel.x}
+                         y2={ref.pixel.y + 18 / scale}
+                         stroke="#dc2626"
+                         strokeWidth={2 / scale}
+                     />
+                     {/* Label */}
+                     <text
+                         x={ref.pixel.x + 20 / scale}
+                         y={ref.pixel.y + 5 / scale}
+                         fontSize={14 / scale}
+                         fill="#dc2626"
+                         fontWeight="bold"
+                     >
+                         {`P${i + 1}: ${ref.world.x.toFixed(1)}, ${ref.world.y.toFixed(1)}`}
+                     </text>
+                 </g>
+             ))}
+
              {/* Handles for selected */}
              {selectedIds.map(id => {
                  const s = shapes.find(sh => sh.id === id);
