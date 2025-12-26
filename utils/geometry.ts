@@ -59,20 +59,50 @@ export const doLineSegmentsIntersect = (p1: Point, q1: Point, p2: Point, q2: Poi
 };
 
 export const checkPolygonSelfIntersection = (points: Point[], nextPoint: Point): boolean => {
-    if (points.length < 2) return false;
-    
+    if (points.length < 3) return false;
+
     // Check if the new segment (points[last] -> nextPoint) intersects any existing segments
-    // Exclude the immediate previous segment, they share a vertex.
     const lastIdx = points.length - 1;
     const p1 = points[lastIdx];
     const q1 = nextPoint;
 
-    for (let i = 0; i < points.length - 2; i++) {
+    // Check if we're closing the polygon (nextPoint is the first point)
+    const isClosing = (Math.abs(nextPoint.x - points[0].x) < 0.1 && Math.abs(nextPoint.y - points[0].y) < 0.1);
+
+    // When closing: skip segment 0-1 (shares vertex with closing segment) and last segment
+    // When not closing: skip only the last segment (shares vertex with new segment)
+    const startIdx = isClosing ? 1 : 0;
+    const endIdx = points.length - 2;
+
+    for (let i = startIdx; i < endIdx; i++) {
         const p2 = points[i];
         const q2 = points[i + 1];
-        if (doLineSegmentsIntersect(p1, q1, p2, q2)) return true;
+
+        // True intersection test - segments must cross, not just touch at endpoints
+        if (segmentsCross(p1, q1, p2, q2)) return true;
     }
-    
+
+    return false;
+};
+
+// Check if two segments truly cross (not just touch at endpoints)
+const segmentsCross = (a1: Point, a2: Point, b1: Point, b2: Point): boolean => {
+    const o1 = orientation(a1, a2, b1);
+    const o2 = orientation(a1, a2, b2);
+    const o3 = orientation(b1, b2, a1);
+    const o4 = orientation(b1, b2, a2);
+
+    // General case: segments cross if orientations differ
+    if (o1 !== o2 && o3 !== o4) {
+        // But exclude cases where they just touch at a shared vertex
+        const eps = 0.1;
+        if (Math.abs(a1.x - b1.x) < eps && Math.abs(a1.y - b1.y) < eps) return false;
+        if (Math.abs(a1.x - b2.x) < eps && Math.abs(a1.y - b2.y) < eps) return false;
+        if (Math.abs(a2.x - b1.x) < eps && Math.abs(a2.y - b1.y) < eps) return false;
+        if (Math.abs(a2.x - b2.x) < eps && Math.abs(a2.y - b2.y) < eps) return false;
+        return true;
+    }
+
     return false;
 };
 
