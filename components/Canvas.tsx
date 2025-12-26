@@ -5,7 +5,7 @@ import { getPolygonLabelStats, constrainPoint, getDistance, getAlignmentGuides, 
 import { COLORS, HANDLE_RADIUS, SNAP_THRESHOLD } from '../constants';
 import { ContextMenu } from './ContextMenu';
 import { Crop, HelpCircle } from 'lucide-react';
-import { getIconComponent } from '../utils/icons';
+import { getIconByName } from './IconPickerModal';
 
 interface CanvasProps {
   image: HTMLImageElement | null;
@@ -913,7 +913,8 @@ const Canvas: React.FC<CanvasProps> = ({
                          </g>
                      );
                  } else if (shape.type === 'icon' && shape.iconName) {
-                     const Icon = getIconComponent(shape.iconName);
+                     const Icon = getIconByName(shape.iconName);
+                     if (!Icon) return null;
                      const size = (shape.fontSize || 32) / scale;
                      return (
                          <foreignObject key={shape.id} x={shape.points[0].x - size/2} y={shape.points[0].y - size/2} width={size} height={size} className="pointer-events-none">
