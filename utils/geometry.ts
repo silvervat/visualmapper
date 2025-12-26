@@ -655,13 +655,45 @@ export const calculateMTV = (movingPoly: Point[], staticPoly: Point[]): Point | 
   const centerToCenter = { x: movingCenter.x - staticCenter.x, y: movingCenter.y - staticCenter.y };
   const dot = centerToCenter.x * mtvAxis.x + centerToCenter.y * mtvAxis.y;
 
-  // Add a small buffer (1 pixel) to ensure no overlap after translation
-  const buffer = 1;
+  // No buffer - areas should touch exactly at their edges
   if (dot < 0) {
-    return { x: -mtvAxis.x * (minOverlap + buffer), y: -mtvAxis.y * (minOverlap + buffer) };
+    return { x: -mtvAxis.x * minOverlap, y: -mtvAxis.y * minOverlap };
   } else {
-    return { x: mtvAxis.x * (minOverlap + buffer), y: mtvAxis.y * (minOverlap + buffer) };
+    return { x: mtvAxis.x * minOverlap, y: mtvAxis.y * minOverlap };
   }
+};
+
+// Snap polygon vertices to nearby edges of static polygons for precise alignment
+const snapVerticesToEdges = (poly: Point[], staticPolygons: Point[][], threshold: number = 3): Point[] => {
+  return poly.map(vertex => {
+    let closestDist = threshold;
+    let snappedPoint = vertex;
+
+    for (const staticPoly of staticPolygons) {
+      // Check snap to vertices
+      for (const staticVertex of staticPoly) {
+        const dist = Math.sqrt(Math.pow(vertex.x - staticVertex.x, 2) + Math.pow(vertex.y - staticVertex.y, 2));
+        if (dist < closestDist) {
+          closestDist = dist;
+          snappedPoint = { ...staticVertex };
+        }
+      }
+
+      // Check snap to edges
+      for (let i = 0; i < staticPoly.length; i++) {
+        const p1 = staticPoly[i];
+        const p2 = staticPoly[(i + 1) % staticPoly.length];
+        const closestOnEdge = getClosestPointOnSegment(vertex, p1, p2);
+        const dist = Math.sqrt(Math.pow(vertex.x - closestOnEdge.x, 2) + Math.pow(vertex.y - closestOnEdge.y, 2));
+        if (dist < closestDist) {
+          closestDist = dist;
+          snappedPoint = closestOnEdge;
+        }
+      }
+    }
+
+    return snappedPoint;
+  });
 };
 
 // Resolve all overlaps by calculating combined MTV for a polygon against multiple static polygons
@@ -688,6 +720,9 @@ export const resolveAllOverlaps = (movingPoly: Point[], staticPolygons: Point[][
 
     if (!hasOverlap) break;
   }
+
+  // After resolving overlaps, snap vertices to nearby edges for precise alignment
+  currentPoly = snapVerticesToEdges(currentPoly, staticPolygons, 5);
 
   return currentPoly;
 };
