@@ -11,9 +11,10 @@ import IconPickerModal from './components/IconPickerModal';
 import PageSettingsModal from './components/PageSettingsModal';
 import NewSheetModal from './components/NewSheetModal';
 import AxisCreationModal from './components/AxisCreationModal';
+import CranePickerModal from './components/CranePickerModal';
 import AlertModal, { useAlert } from './components/AlertModal';
 import ExportModal, { ExportOptions } from './components/ExportModal';
-import { Shape, ToolType, Viewport, CoordinateReference, Point, ProjectFile, ShapeType, PageConfig, SavedStyle, Sheet, RecentTool, AxisConfig } from './types';
+import { Shape, ToolType, Viewport, CoordinateReference, Point, ProjectFile, ShapeType, PageConfig, SavedStyle, Sheet, RecentTool, AxisConfig, CraneModel } from './types';
 import { loadPdfPage } from './utils/pdf';
 import { doPolygonsIntersect, toRoman } from './utils/geometry';
 import { exportToPdf, exportToDxf, exportToGeoJson, exportToPng, exportToIfc } from './utils/export';
@@ -36,6 +37,10 @@ const App = () => {
   const { alertState, hideAlert, showError, showWarning, showSuccess } = useAlert();
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Crane picker
+  const [showCranePicker, setShowCranePicker] = useState(false);
+  const [customCranes, setCustomCranes] = useState<CraneModel[]>([]);
 
   // Load effect
   useEffect(() => {
@@ -762,6 +767,7 @@ const App = () => {
         snapToBackground={snapToBackground} setSnapToBackground={setSnapToBackground}
         isCalibrated={isCalibrated}
         onNewPage={() => setShowNewSheetModal(true)}
+        onOpenCranePicker={() => setShowCranePicker(true)}
       />
       
       <div className="flex flex-1 overflow-hidden relative">
@@ -884,6 +890,35 @@ const App = () => {
            {showCalibrationList && activeSheet && (<CalibrationListModal calibrations={activeSheet.calibrationData} onUpdate={(index, meters) => { const newData = [...activeSheet.calibrationData]; newData[index].meters = meters; updateActiveSheet({ calibrationData: newData }); }} onDelete={(index) => { const newData = activeSheet.calibrationData.filter((_, i) => i !== index); updateActiveSheet({ calibrationData: newData }); }} onClose={() => setShowCalibrationList(false)} />)}
            {showIconPicker && (<IconPickerModal onSelect={(iconName) => { if (iconPickerTargetId) { handleShapeUpdate(iconPickerTargetId, { iconName }); } else { handleDefaultStyleUpdate('icon', { iconName }); } setShowIconPicker(false); setIconPickerTargetId(null); }} onClose={() => { setShowIconPicker(false); setIconPickerTargetId(null); }} />)}
            {showPageSettings && (<PageSettingsModal config={pageConfig} onSave={setPageConfig} onClose={() => setShowPageSettings(false)} />)}
+
+           {/* Crane Picker Modal */}
+           <CranePickerModal
+             isOpen={showCranePicker}
+             onClose={() => setShowCranePicker(false)}
+             onSelectCrane={(crane, config) => {
+               if (!activeSheet || !pixelsPerMeter) return;
+               // Add crane at center of current viewport
+               const viewport = activeSheet.viewport;
+               const centerX = (-viewport.x + (containerDimensions.width / 2)) / activeSheet.scale;
+               const centerY = (-viewport.y + (containerDimensions.height / 2)) / activeSheet.scale;
+
+               const newShape: Shape = {
+                 id: Date.now().toString(),
+                 type: 'crane',
+                 points: [{ x: centerX, y: centerY }],
+                 color: '#f97316', // Orange for crane
+                 label: config?.modelName || crane.model,
+                 areaNumber: 0,
+                 opacity: 0.9,
+                 craneConfig: config,
+               };
+               handleShapeAdd(newShape);
+               setShowCranePicker(false);
+             }}
+             customCranes={customCranes}
+             onAddCustomCrane={(crane) => setCustomCranes([...customCranes, crane])}
+             onDeleteCustomCrane={(id) => setCustomCranes(customCranes.filter(c => c.id !== id))}
+           />
 
            {/* Alert Modal */}
            <AlertModal

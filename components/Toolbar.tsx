@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MousePointer2, Square, Hexagon, ZoomIn, ZoomOut, Upload, Download, Ruler, Crop, Eye, EyeOff, Globe, Lock, Unlock, Undo2, Redo2, MapPin, Tag, FileText, SquareStack, Save, FolderOpen, ArrowRight, Zap, Type, ListOrdered, Hash, LayoutTemplate, Magnet, Scale, Table2, Circle, Triangle, MessageSquare, PlusCircle, Grid } from 'lucide-react';
+import { MousePointer2, Square, Hexagon, ZoomIn, ZoomOut, Upload, Download, Ruler, Crop, Eye, EyeOff, Globe, Lock, Unlock, Undo2, Redo2, MapPin, Tag, FileText, SquareStack, Save, FolderOpen, ArrowRight, Zap, Type, ListOrdered, Hash, LayoutTemplate, Magnet, Scale, Table2, Circle, Triangle, MessageSquare, PlusCircle, Grid, Truck } from 'lucide-react';
 import { ToolType } from '../types';
 
 interface ToolbarProps {
@@ -45,6 +45,7 @@ interface ToolbarProps {
   setSnapToBackground?: (b: boolean) => void;
   isCalibrated?: boolean;
   onNewPage: () => void;
+  onOpenCranePicker?: () => void;
 }
 
 const ToolButton = ({ 
@@ -94,7 +95,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   title, setTitle, description, setDescription, floor, setFloor, pixelsPerMeter, showArea, setShowArea, calibrationCount = 0,
   allowOutsideDraw, setAllowOutsideDraw, preventOverlap, setPreventOverlap, onUndo, onRedo, canUndo, canRedo,
   showCoords, setShowCoords, showDimensions, setShowDimensions, onManageCalibrations, onManageCoords,
-  autoIncrementLabels, setAutoIncrementLabels, onOpenPageSettings, snapToBackground, setSnapToBackground, isCalibrated, onNewPage
+  autoIncrementLabels, setAutoIncrementLabels, onOpenPageSettings, snapToBackground, setSnapToBackground, isCalibrated, onNewPage,
+  onOpenCranePicker
 }) => {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
@@ -244,16 +246,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
         onMouseEnter={() => isCalibrated && openDropdown('grid', gridRef)}
         onMouseLeave={scheduleClose}
       >
-        <ToolButton 
+        <ToolButton
             buttonRef={gridRef}
-            active={currentTool === 'axis_tool' || currentTool === 'grid_tool'} 
-            onClick={() => setTool('axis_tool')} 
-            icon={Grid} 
+            active={currentTool === 'axis_tool' || currentTool === 'grid_tool'}
+            onClick={() => setTool('axis_tool')}
+            icon={Grid}
             label="Süsteemid"
             disabled={!isCalibrated}
             title={!isCalibrated ? "Nõuab kalibreerimist" : ""}
         />
       </div>
+
+      {/* Crane button */}
+      <ToolButton
+        active={currentTool === 'crane'}
+        onClick={() => onOpenCranePicker && onOpenCranePicker()}
+        icon={Truck}
+        label="Kraana"
+        disabled={!isCalibrated}
+        title={!isCalibrated ? "Nõuab kalibreerimist" : "Lisa kraana plaanile"}
+      />
 
       <ToolButton active={currentTool === 'crop'} onClick={() => setTool('crop')} icon={Crop} label="Kärbi" />
       
