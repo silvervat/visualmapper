@@ -1361,6 +1361,194 @@ DATA;
     }
   }
 
+  // ============================================
+  // ADD CRANES AS EQUIPMENT WITH RADIUS CIRCLES
+  // ============================================
+  const equipmentIds: number[] = [];
+
+  for (const shape of shapes) {
+    if (shape.type === 'crane' && shape.craneConfig && pixelsPerMeter) {
+      const cfg = shape.craneConfig;
+      const center = transformPoint(shape.points[0]);
+      const centerX = center.x * 1000; // Convert to mm
+      const centerY = center.y * 1000;
+
+      // Body dimensions in mm
+      const bodyW = cfg.bodyWidthM * 1000;
+      const bodyL = cfg.bodyLengthM * 1000;
+      const outriggerSpread = cfg.outriggerSpreadM * 1000;
+
+      // Create crane body as extruded rectangle
+      const bodyPt1Id = entityId++;
+      const bodyPt2Id = entityId++;
+      const bodyPt3Id = entityId++;
+      const bodyPt4Id = entityId++;
+      entities.push(`#${bodyPt1Id}=IFCCARTESIANPOINT((${formatIfcFloat(centerX - bodyW/2)},${formatIfcFloat(centerY - bodyL/2)}));`);
+      entities.push(`#${bodyPt2Id}=IFCCARTESIANPOINT((${formatIfcFloat(centerX + bodyW/2)},${formatIfcFloat(centerY - bodyL/2)}));`);
+      entities.push(`#${bodyPt3Id}=IFCCARTESIANPOINT((${formatIfcFloat(centerX + bodyW/2)},${formatIfcFloat(centerY + bodyL/2)}));`);
+      entities.push(`#${bodyPt4Id}=IFCCARTESIANPOINT((${formatIfcFloat(centerX - bodyW/2)},${formatIfcFloat(centerY + bodyL/2)}));`);
+
+      const bodyPolyId = entityId++;
+      entities.push(`#${bodyPolyId}=IFCPOLYLINE((#${bodyPt1Id},#${bodyPt2Id},#${bodyPt3Id},#${bodyPt4Id},#${bodyPt1Id}));`);
+
+      const bodyProfileId = entityId++;
+      entities.push(`#${bodyProfileId}=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#${bodyPolyId});`);
+
+      const extrudeDirId = entityId++;
+      entities.push(`#${extrudeDirId}=IFCDIRECTION((0.,0.,1.));`);
+
+      // Extrude crane body 500mm high
+      const bodySolidId = entityId++;
+      entities.push(`#${bodySolidId}=IFCEXTRUDEDAREASOLID(#${bodyProfileId},#${axis2PlacementId},#${extrudeDirId},500.);`);
+
+      // Color for crane body (orange)
+      const craneColorId = entityId++;
+      entities.push(`#${craneColorId}=IFCCOLOURRGB($,0.976,0.451,0.086);`);
+
+      const craneShadingId = entityId++;
+      entities.push(`#${craneShadingId}=IFCSURFACESTYLESHADING(#${craneColorId});`);
+
+      const craneStyleId = entityId++;
+      entities.push(`#${craneStyleId}=IFCSURFACESTYLE('Crane',.BOTH.,(#${craneShadingId}));`);
+
+      const cranePresStyleId = entityId++;
+      entities.push(`#${cranePresStyleId}=IFCPRESENTATIONSTYLEASSIGNMENT((#${craneStyleId}));`);
+
+      const craneStyledItemId = entityId++;
+      entities.push(`#${craneStyledItemId}=IFCSTYLEDITEM(#${bodySolidId},(#${cranePresStyleId}),$);`);
+
+      // Create radius circles as curves
+      const circleItems: number[] = [bodySolidId];
+
+      if (cfg.showRadiusCircle && cfg.radiusCircles) {
+        for (const radiusM of cfg.radiusCircles) {
+          const radiusMm = radiusM * 1000;
+
+          // Create circle at crane center
+          const circleCenterId = entityId++;
+          entities.push(`#${circleCenterId}=IFCCARTESIANPOINT((${formatIfcFloat(centerX)},${formatIfcFloat(centerY)}));`);
+
+          const circlePlacementId = entityId++;
+          entities.push(`#${circlePlacementId}=IFCAXIS2PLACEMENT2D(#${circleCenterId},$);`);
+
+          const circleId = entityId++;
+          entities.push(`#${circleId}=IFCCIRCLE(#${circlePlacementId},${formatIfcFloat(radiusMm)});`);
+
+          circleItems.push(circleId);
+        }
+      }
+
+      // Create outrigger points as small circles
+      if (cfg.showOutriggers) {
+        const outriggerPositions = [
+          { x: centerX - outriggerSpread/2, y: centerY - bodyL/2 - 500 }, // Front left
+          { x: centerX + outriggerSpread/2, y: centerY - bodyL/2 - 500 }, // Front right
+          { x: centerX - outriggerSpread/2, y: centerY + bodyL/2 + 500 }, // Rear left
+          { x: centerX + outriggerSpread/2, y: centerY + bodyL/2 + 500 }, // Rear right
+        ];
+
+        for (const pos of outriggerPositions) {
+          const outriggerPtId = entityId++;
+          entities.push(`#${outriggerPtId}=IFCCARTESIANPOINT((${formatIfcFloat(pos.x)},${formatIfcFloat(pos.y)}));`);
+
+          const outriggerPlaceId = entityId++;
+          entities.push(`#${outriggerPlaceId}=IFCAXIS2PLACEMENT2D(#${outriggerPtId},$);`);
+
+          const outriggerCircleId = entityId++;
+          entities.push(`#${outriggerCircleId}=IFCCIRCLE(#${outriggerPlaceId},300.);`); // 300mm radius pad
+
+          circleItems.push(outriggerCircleId);
+        }
+      }
+
+      // Create boom line
+      if (cfg.showBoom) {
+        const boomAngle = (cfg.boomAngleDeg || 0) * Math.PI / 180;
+        const boomLenMm = cfg.boomLengthM * 1000;
+        const boomEndX = centerX + Math.cos(boomAngle) * boomLenMm;
+        const boomEndY = centerY + Math.sin(boomAngle) * boomLenMm;
+
+        const boomStartId = entityId++;
+        const boomEndId = entityId++;
+        entities.push(`#${boomStartId}=IFCCARTESIANPOINT((${formatIfcFloat(centerX)},${formatIfcFloat(centerY)}));`);
+        entities.push(`#${boomEndId}=IFCCARTESIANPOINT((${formatIfcFloat(boomEndX)},${formatIfcFloat(boomEndY)}));`);
+
+        const boomLineId = entityId++;
+        entities.push(`#${boomLineId}=IFCPOLYLINE((#${boomStartId},#${boomEndId}));`);
+
+        circleItems.push(boomLineId);
+      }
+
+      // Shape representation
+      const craneRepId = entityId++;
+      entities.push(`#${craneRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Body','SweptSolid',(${circleItems.map(id => '#' + id).join(',')}));`);
+
+      const craneProdDefId = entityId++;
+      entities.push(`#${craneProdDefId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${craneRepId}));`);
+
+      // Crane placement
+      const cranePlacementId = entityId++;
+      entities.push(`#${cranePlacementId}=IFCLOCALPLACEMENT(#${storeyPlacementId},#${axis2PlacementId});`);
+
+      // Create as IFCBUILDINGELEMENTPROXY (generic equipment)
+      const craneId = entityId++;
+      const craneName = cfg.modelName || 'Crane';
+      entities.push(`#${craneId}=IFCBUILDINGELEMENTPROXY('${generateIfcGuid()}',#${ownerHistoryId},'${craneName}','Crane - ${cfg.manufacturer || ''}',$,#${cranePlacementId},#${craneProdDefId},$,.NOTDEFINED.);`);
+      equipmentIds.push(craneId);
+
+      // Add crane properties
+      const cranePropIds: number[] = [];
+
+      const modelPropId = entityId++;
+      entities.push(`#${modelPropId}=IFCPROPERTYSINGLEVALUE('Model','Crane model',IFCTEXT('${craneName}'),$);`);
+      cranePropIds.push(modelPropId);
+
+      const radiusPropId = entityId++;
+      entities.push(`#${radiusPropId}=IFCPROPERTYSINGLEVALUE('WorkingRadius','Working radius in meters',IFCLENGTHMEASURE(${formatIfcFloat(cfg.currentRadiusM * 1000)}),$);`);
+      cranePropIds.push(radiusPropId);
+
+      const boomPropId = entityId++;
+      entities.push(`#${boomPropId}=IFCPROPERTYSINGLEVALUE('BoomLength','Boom length in meters',IFCLENGTHMEASURE(${formatIfcFloat(cfg.boomLengthM * 1000)}),$);`);
+      cranePropIds.push(boomPropId);
+
+      const outriggerPropId = entityId++;
+      entities.push(`#${outriggerPropId}=IFCPROPERTYSINGLEVALUE('OutriggerSpread','Outrigger spread in meters',IFCLENGTHMEASURE(${formatIfcFloat(cfg.outriggerSpreadM * 1000)}),$);`);
+      cranePropIds.push(outriggerPropId);
+
+      const cranePropSetId = entityId++;
+      entities.push(`#${cranePropSetId}=IFCPROPERTYSET('${generateIfcGuid()}',#${ownerHistoryId},'VisualMapper_CraneProperties','Crane properties',(${cranePropIds.map(id => '#' + id).join(',')}));`);
+
+      const relCranePropId = entityId++;
+      entities.push(`#${relCranePropId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${craneId}),#${cranePropSetId});`);
+
+      // Add text annotation for crane label
+      const craneLabelId = entityId++;
+      const craneLabelPtId = entityId++;
+      entities.push(`#${craneLabelPtId}=IFCCARTESIANPOINT((${formatIfcFloat(centerX)},${formatIfcFloat(centerY + bodyL/2 + 800)}));`);
+
+      const craneLabelPlaceId = entityId++;
+      entities.push(`#${craneLabelPlaceId}=IFCAXIS2PLACEMENT2D(#${craneLabelPtId},$);`);
+
+      const craneLabelTextId = entityId++;
+      entities.push(`#${craneLabelTextId}=IFCTEXTLITERAL('${craneName}',#${craneLabelPlaceId},.LEFT.);`);
+
+      const craneLabelRepId = entityId++;
+      entities.push(`#${craneLabelRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Annotation','Annotation2D',(#${craneLabelTextId}));`);
+
+      const craneLabelProdDefId = entityId++;
+      entities.push(`#${craneLabelProdDefId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${craneLabelRepId}));`);
+
+      entities.push(`#${craneLabelId}=IFCANNOTATION('${generateIfcGuid()}',#${ownerHistoryId},'${craneName}','Crane label',$,#${cranePlacementId},#${craneLabelProdDefId});`);
+      annotationIds.push(craneLabelId);
+    }
+  }
+
+  // Relate equipment (cranes) to storey
+  if (equipmentIds.length > 0) {
+    const relEquipId = entityId++;
+    entities.push(`#${relEquipId}=IFCRELCONTAINEDINSPATIALSTRUCTURE('${generateIfcGuid()}',#${ownerHistoryId},'Equipment','Cranes and equipment',(${equipmentIds.map(id => '#' + id).join(',')}),#${storeyId});`);
+  }
+
   // Relate spaces to storey
   if (spaceIds.length > 0) {
     const relSpacesId = entityId++;
