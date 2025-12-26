@@ -908,6 +908,8 @@ export interface IfcExportOptions {
   buildingName?: string;
   floorName?: string;
   floorElevation?: number;
+  imageFileName?: string; // Name of the background image file
+  includeImage?: boolean;
 }
 
 const generateIfcGuid = (): string => {
@@ -922,8 +924,17 @@ const generateIfcGuid = (): string => {
 
 const formatIfcFloat = (n: number): string => n.toFixed(6);
 
-const formatIfcPoint = (x: number, y: number, z: number = 0): string => {
-  return `(${formatIfcFloat(x)},${formatIfcFloat(y)},${formatIfcFloat(z)})`;
+// Convert hex color to RGB values (0-1 range)
+const hexToRgb = (hex: string): { r: number; g: number; b: number } => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (result) {
+    return {
+      r: parseInt(result[1], 16) / 255,
+      g: parseInt(result[2], 16) / 255,
+      b: parseInt(result[3], 16) / 255
+    };
+  }
+  return { r: 0.5, g: 0.5, b: 0.5 };
 };
 
 export const exportToIfc = (options: IfcExportOptions): string => {
@@ -935,7 +946,9 @@ export const exportToIfc = (options: IfcExportOptions): string => {
     siteName = 'Site',
     buildingName = 'Building',
     floorName = sheet.floor || 'Floor',
-    floorElevation = 0
+    floorElevation = 0,
+    imageFileName = 'background.png',
+    includeImage = true
   } = options;
 
   const coordRefs = sheet.coordRefs;
@@ -956,13 +969,6 @@ export const exportToIfc = (options: IfcExportOptions): string => {
       return { x: p.x / 1000, y: -p.y / 1000, z: floorElevation };
     }
   };
-
-  // Generate GUIDs for all entities
-  const projectGuid = generateIfcGuid();
-  const siteGuid = generateIfcGuid();
-  const buildingGuid = generateIfcGuid();
-  const storeyGuid = generateIfcGuid();
-  const ownerHistoryGuid = generateIfcGuid();
 
   const timestamp = Math.floor(Date.now() / 1000);
   const dateStr = new Date().toISOString().split('T')[0];
@@ -1034,6 +1040,7 @@ DATA;
   entities.push(`#${geomSubContextId}=IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,#${geomContextId},$,.MODEL_VIEW.,$);`);
 
   // Project
+  const projectGuid = generateIfcGuid();
   const projectId = entityId++;
   entities.push(`#${projectId}=IFCPROJECT('${projectGuid}',#${ownerHistoryId},'${projectName}',$,$,$,$,(#${geomContextId}),#${unitAssignId});`);
 
@@ -1042,6 +1049,7 @@ DATA;
   entities.push(`#${sitePlacementId}=IFCLOCALPLACEMENT($,#${axis2PlacementId});`);
 
   // Site
+  const siteGuid = generateIfcGuid();
   const siteId = entityId++;
   entities.push(`#${siteId}=IFCSITE('${siteGuid}',#${ownerHistoryId},'${siteName}',$,$,#${sitePlacementId},$,$,.ELEMENT.,$,$,$,$,$);`);
 
@@ -1050,6 +1058,7 @@ DATA;
   entities.push(`#${buildingPlacementId}=IFCLOCALPLACEMENT(#${sitePlacementId},#${axis2PlacementId});`);
 
   // Building
+  const buildingGuid = generateIfcGuid();
   const buildingId = entityId++;
   entities.push(`#${buildingId}=IFCBUILDING('${buildingGuid}',#${ownerHistoryId},'${buildingName}',$,$,#${buildingPlacementId},$,$,.ELEMENT.,$,$,$);`);
 
@@ -1064,6 +1073,7 @@ DATA;
   entities.push(`#${storeyPlacementId}=IFCLOCALPLACEMENT(#${buildingPlacementId},#${storeyAxis2PlacementId});`);
 
   // Building Storey
+  const storeyGuid = generateIfcGuid();
   const storeyId = entityId++;
   entities.push(`#${storeyId}=IFCBUILDINGSTOREY('${storeyGuid}',#${ownerHistoryId},'${floorName}',$,$,#${storeyPlacementId},$,$,.ELEMENT.,${formatIfcFloat(floorElevation * 1000)});`);
 
@@ -1077,22 +1087,41 @@ DATA;
   const relStoreyId = entityId++;
   entities.push(`#${relStoreyId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${buildingId},(#${storeyId}));`);
 
+  // ============================================
+  // ADD BACKGROUND IMAGE AS DOCUMENT REFERENCE
+  // ============================================
+  if (includeImage && imageFileName) {
+    const docInfoId = entityId++;
+    entities.push(`#${docInfoId}=IFCDOCUMENTINFORMATION('${generateIfcGuid()}','${imageFileName}','Background floor plan image',$,$,$,$,$,$,$,$,$,$,$,$,$);`);
+
+    const docRefId = entityId++;
+    entities.push(`#${docRefId}=IFCDOCUMENTREFERENCE('./${imageFileName}',$,'${imageFileName}');`);
+
+    // Link document to project
+    const relDocId = entityId++;
+    entities.push(`#${relDocId}=IFCRELASSOCIATESDOCUMENT('${generateIfcGuid()}',#${ownerHistoryId},'Floor Plan Image','Background image for ${floorName}',(#${storeyId}),#${docRefId});`);
+  }
+
   // Create spaces for each polygon/rectangle area
   const spaceIds: number[] = [];
+  const styledItemIds: number[] = [];
 
   for (const shape of shapes) {
     if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square') {
       const spaceGuid = generateIfcGuid();
       const spaceName = shape.label || `Space_${shape.id}`;
 
-      // Transform points to meters (IFC uses mm internally but we'll use the meter values)
+      // Transform points to meters (IFC uses mm internally)
       const points = shape.points.map(transformPoint);
 
-      // Calculate area
+      // Calculate area and perimeter
       let areaSqM = 0;
+      let perimeterM = 0;
       if (pixelsPerMeter) {
         const areaPx = getPolygonArea(shape.points);
         areaSqM = areaPx / (pixelsPerMeter * pixelsPerMeter);
+        const perimPx = getPolygonPerimeter(shape.points);
+        perimeterM = perimPx / pixelsPerMeter;
       }
 
       // Create polyline for the space boundary
@@ -1120,6 +1149,24 @@ DATA;
       const solidId = entityId++;
       entities.push(`#${solidId}=IFCEXTRUDEDAREASOLID(#${profileId},#${axis2PlacementId},#${extrudeDirId},100.);`);
 
+      // ============================================
+      // ADD COLOR STYLING
+      // ============================================
+      const rgb = hexToRgb(shape.color || '#888888');
+
+      const colorId = entityId++;
+      entities.push(`#${colorId}=IFCCOLOURRGB($,${formatIfcFloat(rgb.r)},${formatIfcFloat(rgb.g)},${formatIfcFloat(rgb.b)});`);
+
+      const surfaceStyleRenderingId = entityId++;
+      entities.push(`#${surfaceStyleRenderingId}=IFCSURFACESTYLERENDERING(#${colorId},${formatIfcFloat(shape.opacity || 0.5)},$,$,$,$,$,$,.FLAT.);`);
+
+      const surfaceStyleId = entityId++;
+      entities.push(`#${surfaceStyleId}=IFCSURFACESTYLE('${spaceName}',.BOTH.,(#${surfaceStyleRenderingId}));`);
+
+      const styledItemId = entityId++;
+      entities.push(`#${styledItemId}=IFCSTYLEDITEM(#${solidId},(#${surfaceStyleId}),$);`);
+      styledItemIds.push(styledItemId);
+
       // Shape representation
       const shapeRepId = entityId++;
       entities.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Body','SweptSolid',(#${solidId}));`);
@@ -1133,40 +1180,140 @@ DATA;
 
       // Create space
       const spaceId = entityId++;
-      entities.push(`#${spaceId}=IFCSPACE('${spaceGuid}',#${ownerHistoryId},'${spaceName}',$,$,#${spacePlacementId},#${prodDefShapeId},$,.ELEMENT.,.INTERNAL.,$);`);
+      entities.push(`#${spaceId}=IFCSPACE('${spaceGuid}',#${ownerHistoryId},'${spaceName}','${shape.label || ''}',$,#${spacePlacementId},#${prodDefShapeId},$,.ELEMENT.,.INTERNAL.,$);`);
       spaceIds.push(spaceId);
 
-      // Add area quantity if calibrated
+      // ============================================
+      // ADD QUANTITIES (Area, Perimeter)
+      // ============================================
+      const quantities: number[] = [];
+
       if (areaSqM > 0) {
         const areaQtyId = entityId++;
-        entities.push(`#${areaQtyId}=IFCQUANTITYAREA('GrossFloorArea',$,$,${formatIfcFloat(areaSqM)},$);`);
+        entities.push(`#${areaQtyId}=IFCQUANTITYAREA('GrossFloorArea','Gross floor area of the space',$,${formatIfcFloat(areaSqM)},$);`);
+        quantities.push(areaQtyId);
 
+        const netAreaQtyId = entityId++;
+        entities.push(`#${netAreaQtyId}=IFCQUANTITYAREA('NetFloorArea','Net floor area of the space',$,${formatIfcFloat(areaSqM)},$);`);
+        quantities.push(netAreaQtyId);
+      }
+
+      if (perimeterM > 0) {
+        const perimQtyId = entityId++;
+        entities.push(`#${perimQtyId}=IFCQUANTITYLENGTH('GrossPerimeter','Perimeter of the space',$,${formatIfcFloat(perimeterM)},$);`);
+        quantities.push(perimQtyId);
+      }
+
+      if (quantities.length > 0) {
         const qtySetId = entityId++;
-        entities.push(`#${qtySetId}=IFCELEMENTQUANTITY('${generateIfcGuid()}',#${ownerHistoryId},'BaseQuantities',$,$,(#${areaQtyId}));`);
+        entities.push(`#${qtySetId}=IFCELEMENTQUANTITY('${generateIfcGuid()}',#${ownerHistoryId},'Qto_SpaceBaseQuantities','Base quantities for space',$,(${quantities.map(id => '#' + id).join(',')}));`);
 
         const relQtyId = entityId++;
         entities.push(`#${relQtyId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${qtySetId});`);
       }
 
-      // Add color property
-      const colorPropId = entityId++;
-      entities.push(`#${colorPropId}=IFCPROPERTYSINGLEVALUE('Color',$,IFCTEXT('${shape.color}'),$);`);
+      // ============================================
+      // ADD CUSTOM PROPERTIES (Label, Color, etc.)
+      // ============================================
+      const properties: number[] = [];
 
+      // Label property
       const labelPropId = entityId++;
-      entities.push(`#${labelPropId}=IFCPROPERTYSINGLEVALUE('Label',$,IFCTEXT('${shape.label || ''}'),$);`);
+      entities.push(`#${labelPropId}=IFCPROPERTYSINGLEVALUE('Name','Space name',IFCTEXT('${shape.label || ''}'),$);`);
+      properties.push(labelPropId);
+
+      // Color property
+      const colorPropId = entityId++;
+      entities.push(`#${colorPropId}=IFCPROPERTYSINGLEVALUE('Color','Display color',IFCTEXT('${shape.color || ''}'),$);`);
+      properties.push(colorPropId);
+
+      // Area number property
+      if (shape.areaNumber) {
+        const areaNoPropId = entityId++;
+        entities.push(`#${areaNoPropId}=IFCPROPERTYSINGLEVALUE('AreaNumber','Area reference number',IFCINTEGER(${shape.areaNumber}),$);`);
+        properties.push(areaNoPropId);
+      }
+
+      // Area in m² as text property
+      if (areaSqM > 0) {
+        const areaTextPropId = entityId++;
+        entities.push(`#${areaTextPropId}=IFCPROPERTYSINGLEVALUE('AreaText','Area as text',IFCTEXT('${areaSqM.toFixed(2)} m2'),$);`);
+        properties.push(areaTextPropId);
+      }
+
+      // Perimeter as text property
+      if (perimeterM > 0) {
+        const perimTextPropId = entityId++;
+        entities.push(`#${perimTextPropId}=IFCPROPERTYSINGLEVALUE('PerimeterText','Perimeter as text',IFCTEXT('${perimeterM.toFixed(2)} m'),$);`);
+        properties.push(perimTextPropId);
+      }
 
       const propSetId = entityId++;
-      entities.push(`#${propSetId}=IFCPROPERTYSET('${generateIfcGuid()}',#${ownerHistoryId},'VisualMapper_Properties',$,(#${colorPropId},#${labelPropId}));`);
+      entities.push(`#${propSetId}=IFCPROPERTYSET('${generateIfcGuid()}',#${ownerHistoryId},'VisualMapper_SpaceProperties','Properties from Visual Mapper',(${properties.map(id => '#' + id).join(',')}));`);
 
       const relPropId = entityId++;
       entities.push(`#${relPropId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${propSetId});`);
     }
   }
 
+  // ============================================
+  // ADD MEASUREMENT LINES AS ANNOTATIONS
+  // ============================================
+  const annotationIds: number[] = [];
+
+  for (const shape of shapes) {
+    if (shape.type === 'line' && pixelsPerMeter) {
+      const [p1, p2] = shape.points.map(transformPoint);
+      const dist = getDistance(shape.points[0], shape.points[1]) / pixelsPerMeter;
+
+      // Create line geometry
+      const lineStartId = entityId++;
+      entities.push(`#${lineStartId}=IFCCARTESIANPOINT((${formatIfcFloat(p1.x * 1000)},${formatIfcFloat(p1.y * 1000)},0.));`);
+
+      const lineEndId = entityId++;
+      entities.push(`#${lineEndId}=IFCCARTESIANPOINT((${formatIfcFloat(p2.x * 1000)},${formatIfcFloat(p2.y * 1000)},0.));`);
+
+      const linePolylineId = entityId++;
+      entities.push(`#${linePolylineId}=IFCPOLYLINE((#${lineStartId},#${lineEndId}));`);
+
+      const curveRepId = entityId++;
+      entities.push(`#${curveRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Annotation','Curve2D',(#${linePolylineId}));`);
+
+      const annotProdDefId = entityId++;
+      entities.push(`#${annotProdDefId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${curveRepId}));`);
+
+      const annotPlacementId = entityId++;
+      entities.push(`#${annotPlacementId}=IFCLOCALPLACEMENT(#${storeyPlacementId},#${axis2PlacementId});`);
+
+      const annotationId = entityId++;
+      entities.push(`#${annotationId}=IFCANNOTATION('${generateIfcGuid()}',#${ownerHistoryId},'Measurement','${dist.toFixed(2)} m',$,#${annotPlacementId},#${annotProdDefId});`);
+      annotationIds.push(annotationId);
+
+      // Add length property
+      const lengthPropId = entityId++;
+      entities.push(`#${lengthPropId}=IFCPROPERTYSINGLEVALUE('Length','Measured length',IFCLENGTHMEASURE(${formatIfcFloat(dist * 1000)}),$);`);
+
+      const lengthTextPropId = entityId++;
+      entities.push(`#${lengthTextPropId}=IFCPROPERTYSINGLEVALUE('LengthText','Length as text',IFCTEXT('${dist.toFixed(2)} m'),$);`);
+
+      const annotPropSetId = entityId++;
+      entities.push(`#${annotPropSetId}=IFCPROPERTYSET('${generateIfcGuid()}',#${ownerHistoryId},'VisualMapper_MeasurementProperties','Measurement properties',(#${lengthPropId},#${lengthTextPropId}));`);
+
+      const relAnnotPropId = entityId++;
+      entities.push(`#${relAnnotPropId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${annotationId}),#${annotPropSetId});`);
+    }
+  }
+
   // Relate spaces to storey
   if (spaceIds.length > 0) {
     const relSpacesId = entityId++;
-    entities.push(`#${relSpacesId}=IFCRELCONTAINEDINSPATIALSTRUCTURE('${generateIfcGuid()}',#${ownerHistoryId},$,$,(${spaceIds.map(id => '#' + id).join(',')}),#${storeyId});`);
+    entities.push(`#${relSpacesId}=IFCRELCONTAINEDINSPATIALSTRUCTURE('${generateIfcGuid()}',#${ownerHistoryId},'Spaces','Spaces in storey',(${spaceIds.map(id => '#' + id).join(',')}),#${storeyId});`);
+  }
+
+  // Relate annotations to storey
+  if (annotationIds.length > 0) {
+    const relAnnotId = entityId++;
+    entities.push(`#${relAnnotId}=IFCRELCONTAINEDINSPATIALSTRUCTURE('${generateIfcGuid()}',#${ownerHistoryId},'Measurements','Measurement annotations',(${annotationIds.map(id => '#' + id).join(',')}),#${storeyId});`);
   }
 
   // Footer
