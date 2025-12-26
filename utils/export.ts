@@ -1105,6 +1105,7 @@ DATA;
   // Create spaces for each polygon/rectangle area
   const spaceIds: number[] = [];
   const styledItemIds: number[] = [];
+  const annotationIds: number[] = [];
 
   for (const shape of shapes) {
     if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square') {
@@ -1261,50 +1262,62 @@ DATA;
 
       // ============================================
       // ADD TEXT ANNOTATION FOR SPACE LABEL & AREA
+      // Using IFCTEXT and 2D annotation approach
       // ============================================
       const centroid = getCentroid(shape.points);
       const centroidWorld = transformPoint(centroid);
 
-      // Create text content: "Ala 1\n12.50 m²"
       const labelText = shape.label || `Space ${shape.id}`;
       const areaText = areaSqM > 0 ? `${areaSqM.toFixed(2)} m2` : '';
-      const fullText = areaText ? `${labelText} - ${areaText}` : labelText;
+      const fullText = areaText ? `${labelText} (${areaText})` : labelText;
 
-      // Text literal placement at centroid
-      const textPointId = entityId++;
-      entities.push(`#${textPointId}=IFCCARTESIANPOINT((${formatIfcFloat(centroidWorld.x * 1000)},${formatIfcFloat(centroidWorld.y * 1000)},50.));`);
+      // Create 2D text placement
+      const text2dPointId = entityId++;
+      entities.push(`#${text2dPointId}=IFCCARTESIANPOINT((${formatIfcFloat(centroidWorld.x * 1000)},${formatIfcFloat(centroidWorld.y * 1000)}));`);
 
-      const textAxisId = entityId++;
-      entities.push(`#${textAxisId}=IFCAXIS2PLACEMENT3D(#${textPointId},$,$);`);
+      const text2dPlacementId = entityId++;
+      entities.push(`#${text2dPlacementId}=IFCAXIS2PLACEMENT2D(#${text2dPointId},$);`);
 
+      // Simple text literal (IFC2X3)
       const textLiteralId = entityId++;
-      entities.push(`#${textLiteralId}=IFCTEXTLITERALWITHEXTENT('${fullText}',#${textAxisId},.LEFT.,(1000.,500.),.BOTTOM_LEFT.);`);
+      entities.push(`#${textLiteralId}=IFCTEXTLITERAL('${fullText}',#${text2dPlacementId},.LEFT.);`);
 
-      // Text style
-      const textStyleId = entityId++;
+      // Text font style for visibility
+      const fontStyleId = entityId++;
+      entities.push(`#${fontStyleId}=IFCTEXTSTYLEFONTMODEL('Arial',(),$,$,200.,$);`);
+
+      // Text style with font
+      const textStyleForFontId = entityId++;
+      entities.push(`#${textStyleForFontId}=IFCTEXTSTYLETEXTMODEL($,$,$,$,$,$,$);`);
+
       const textRgb = hexToRgb(shape.textColor || '#000000');
       const textColorId = entityId++;
       entities.push(`#${textColorId}=IFCCOLOURRGB($,${formatIfcFloat(textRgb.r)},${formatIfcFloat(textRgb.g)},${formatIfcFloat(textRgb.b)});`);
-      entities.push(`#${textStyleId}=IFCTEXTSTYLE($,$,$,#${textColorId});`);
 
-      // Styled representation for text
-      const textRepId = entityId++;
-      entities.push(`#${textRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Annotation','Annotation',(#${textLiteralId}));`);
+      const textStyleId = entityId++;
+      entities.push(`#${textStyleId}=IFCTEXTSTYLE($,#${textStyleForFontId},#${fontStyleId},#${textColorId});`);
 
-      const textProdDefId = entityId++;
-      entities.push(`#${textProdDefId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${textRepId}));`);
+      // Curve style for annotation
+      const curveStyleId = entityId++;
+      entities.push(`#${curveStyleId}=IFCCURVESTYLE($,#${fontStyleId},$,#${textColorId});`);
 
-      // Create annotation element
-      const annotId = entityId++;
-      entities.push(`#${annotId}=IFCANNOTATION('${generateIfcGuid()}',#${ownerHistoryId},'${labelText}','${areaText}',$,#${spacePlacementId},#${textProdDefId});`);
+      // Annotation representation
+      const annotRepId = entityId++;
+      entities.push(`#${annotRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Annotation','Annotation2D',(#${textLiteralId}));`);
+
+      const annotProdDefId = entityId++;
+      entities.push(`#${annotProdDefId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${annotRepId}));`);
+
+      // Annotation element
+      const annotElementId = entityId++;
+      entities.push(`#${annotElementId}=IFCANNOTATION('${generateIfcGuid()}',#${ownerHistoryId},'${labelText}','${fullText}',$,#${spacePlacementId},#${annotProdDefId});`);
+      annotationIds.push(annotElementId);
     }
   }
 
   // ============================================
   // ADD MEASUREMENT LINES AS ANNOTATIONS
   // ============================================
-  const annotationIds: number[] = [];
-
   for (const shape of shapes) {
     if (shape.type === 'line' && pixelsPerMeter) {
       const [p1, p2] = shape.points.map(transformPoint);

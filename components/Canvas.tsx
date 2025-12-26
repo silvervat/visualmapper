@@ -1022,6 +1022,158 @@ const Canvas: React.FC<CanvasProps> = ({
                              <text fontSize={size*0.6} fill="white" textAnchor="middle" dominantBaseline="middle">{shape.bulletLabel}</text>
                          </g>
                      );
+                 } else if (shape.type === 'crane' && shape.craneConfig && pixelsPerMeter) {
+                     const cfg = shape.craneConfig;
+                     const center = shape.points[0];
+                     const ppm = pixelsPerMeter;
+
+                     // Convert meters to pixels
+                     const bodyW = cfg.bodyWidthM * ppm;
+                     const bodyL = cfg.bodyLengthM * ppm;
+                     const outriggerSpread = cfg.outriggerSpreadM * ppm;
+                     const outriggerLen = cfg.outriggerLengthM * ppm;
+                     const boomLen = cfg.boomLengthM * ppm;
+                     const boomAngle = (cfg.boomAngleDeg || 0) * Math.PI / 180;
+
+                     return (
+                         <g key={shape.id} transform={`translate(${center.x},${center.y})`}>
+                             {/* Radius circles */}
+                             {cfg.showRadiusCircle && cfg.radiusCircles.map((r, i) => (
+                                 <circle
+                                     key={`radius-${i}`}
+                                     cx={0}
+                                     cy={0}
+                                     r={r * ppm}
+                                     fill="none"
+                                     stroke={shape.color}
+                                     strokeWidth={1.5/scale}
+                                     strokeDasharray={`${8/scale},${4/scale}`}
+                                     opacity={0.6}
+                                 />
+                             ))}
+
+                             {/* Outriggers (Käpad) */}
+                             {cfg.showOutriggers && (
+                                 <>
+                                     {/* Front left */}
+                                     <rect
+                                         x={-outriggerSpread/2 - 15/scale}
+                                         y={-bodyL/2 - outriggerLen}
+                                         width={30/scale}
+                                         height={outriggerLen}
+                                         fill="#374151"
+                                         stroke="#111827"
+                                         strokeWidth={1/scale}
+                                     />
+                                     <circle cx={-outriggerSpread/2} cy={-bodyL/2 - outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+
+                                     {/* Front right */}
+                                     <rect
+                                         x={outriggerSpread/2 - 15/scale}
+                                         y={-bodyL/2 - outriggerLen}
+                                         width={30/scale}
+                                         height={outriggerLen}
+                                         fill="#374151"
+                                         stroke="#111827"
+                                         strokeWidth={1/scale}
+                                     />
+                                     <circle cx={outriggerSpread/2} cy={-bodyL/2 - outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+
+                                     {/* Rear left */}
+                                     <rect
+                                         x={-outriggerSpread/2 - 15/scale}
+                                         y={bodyL/2}
+                                         width={30/scale}
+                                         height={outriggerLen}
+                                         fill="#374151"
+                                         stroke="#111827"
+                                         strokeWidth={1/scale}
+                                     />
+                                     <circle cx={-outriggerSpread/2} cy={bodyL/2 + outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+
+                                     {/* Rear right */}
+                                     <rect
+                                         x={outriggerSpread/2 - 15/scale}
+                                         y={bodyL/2}
+                                         width={30/scale}
+                                         height={outriggerLen}
+                                         fill="#374151"
+                                         stroke="#111827"
+                                         strokeWidth={1/scale}
+                                     />
+                                     <circle cx={outriggerSpread/2} cy={bodyL/2 + outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+                                 </>
+                             )}
+
+                             {/* Crane body (top view) */}
+                             <rect
+                                 x={-bodyW/2}
+                                 y={-bodyL/2}
+                                 width={bodyW}
+                                 height={bodyL}
+                                 fill={shape.color}
+                                 stroke="#111827"
+                                 strokeWidth={2/scale}
+                                 opacity={shape.opacity || 0.8}
+                             />
+
+                             {/* Turntable circle */}
+                             <circle
+                                 cx={0}
+                                 cy={0}
+                                 r={Math.min(bodyW, bodyL) * 0.3}
+                                 fill="#fbbf24"
+                                 stroke="#111827"
+                                 strokeWidth={1/scale}
+                             />
+
+                             {/* Boom direction */}
+                             {cfg.showBoom && (
+                                 <g>
+                                     <line
+                                         x1={0}
+                                         y1={0}
+                                         x2={Math.cos(boomAngle) * boomLen}
+                                         y2={Math.sin(boomAngle) * boomLen}
+                                         stroke="#dc2626"
+                                         strokeWidth={4/scale}
+                                     />
+                                     {/* Boom tip */}
+                                     <circle
+                                         cx={Math.cos(boomAngle) * boomLen}
+                                         cy={Math.sin(boomAngle) * boomLen}
+                                         r={8/scale}
+                                         fill="#dc2626"
+                                     />
+                                 </g>
+                             )}
+
+                             {/* Dimensions text */}
+                             {cfg.showDimensions && (
+                                 <>
+                                     {/* Width dimension */}
+                                     <text x={0} y={bodyL/2 + 25/scale} fontSize={12/scale} textAnchor="middle" fill="#111827">
+                                         {cfg.bodyWidthM.toFixed(1)}m
+                                     </text>
+                                     {/* Length dimension */}
+                                     <text x={bodyW/2 + 25/scale} y={0} fontSize={12/scale} textAnchor="start" dominantBaseline="middle" fill="#111827">
+                                         {cfg.bodyLengthM.toFixed(1)}m
+                                     </text>
+                                     {/* Outrigger spread */}
+                                     {cfg.showOutriggers && (
+                                         <text x={0} y={-bodyL/2 - outriggerLen - 30/scale} fontSize={12/scale} textAnchor="middle" fill="#374151">
+                                             Käpad: {cfg.outriggerSpreadM.toFixed(1)}m
+                                         </text>
+                                     )}
+                                 </>
+                             )}
+
+                             {/* Model name */}
+                             <text x={0} y={bodyL/2 + 45/scale} fontSize={14/scale} textAnchor="middle" fontWeight="bold" fill="#111827">
+                                 {cfg.modelName}
+                             </text>
+                         </g>
+                     );
                  }
                  return null;
              })}
