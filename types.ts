@@ -4,7 +4,44 @@ export type Point = {
   y: number;
 };
 
-export type ShapeType = 'rectangle' | 'polygon' | 'icon' | 'arrow' | 'text' | 'bullet' | 'image' | 'line' | 'circle' | 'triangle' | 'callout' | 'axis' | 'square';
+export type ShapeType = 'rectangle' | 'polygon' | 'icon' | 'arrow' | 'text' | 'bullet' | 'image' | 'line' | 'circle' | 'triangle' | 'callout' | 'axis' | 'square' | 'crane';
+
+// Crane lifting capacity at specific radius
+export interface CraneCapacity {
+  radiusM: number;  // Working radius in meters
+  capacityKg: number;  // Lifting capacity in kg
+}
+
+// Crane model definition for database
+export interface CraneModel {
+  id: string;
+  manufacturer: string;
+  model: string;
+  type: 'mobile' | 'tower' | 'crawler' | 'truck';  // Kraana tüüp
+
+  // Physical dimensions (in meters)
+  bodyLengthM: number;   // Masina pikkus
+  bodyWidthM: number;    // Masina laius
+
+  // Outrigger/stabilizer positions (käpad) - relative to center
+  outriggers: {
+    spreadFrontM: number;   // Eesmised käpad laius
+    spreadRearM: number;    // Tagumised käpad laius
+    spreadSideM: number;    // Külgmised käpad laius
+  };
+
+  // Boom configurations
+  boomLengths: number[];  // Available boom lengths in meters
+
+  // Lifting capacity chart (at different radii)
+  capacityChart: CraneCapacity[];
+
+  // Optional additional info
+  maxRadius: number;      // Maximum working radius
+  maxHeight: number;      // Maximum lifting height
+  counterweightKg?: number;
+  notes?: string;
+}
 
 export interface AxisConfig {
   spacingMm: number; // Step in mm
@@ -74,6 +111,35 @@ export interface Shape {
   // Axis System Specific
   axisConfig?: AxisConfig;
   axisDirection?: 'x' | 'y'; // Useful if we split them
+
+  // Crane Specific (Kraana andmed)
+  craneModelId?: string;           // Link to CraneModel database
+  craneConfig?: {
+    modelName: string;             // Kraana mudel (nt "LTM 1090-4.2")
+    manufacturer: string;          // Tootja
+
+    // Dimensions in meters
+    bodyLengthM: number;           // Masina keha pikkus
+    bodyWidthM: number;            // Masina keha laius
+
+    // Outriggers (Käpad) - distance from center
+    outriggerSpreadM: number;      // Käppade laius (total width when extended)
+    outriggerLengthM: number;      // Käppade pikkus
+
+    // Working radius
+    currentRadiusM: number;        // Praegune tööraadius
+    showRadiusCircle: boolean;     // Näita tööraadius ringi
+    radiusCircles: number[];       // Multiple radius circles to show
+
+    // Boom
+    boomLengthM: number;           // Noole pikkus
+    boomAngleDeg: number;          // Noole suund (0 = paremal, 90 = üleval jne)
+
+    // Visual options
+    showDimensions: boolean;       // Näita mõõtjooni
+    showOutriggers: boolean;       // Näita käpasid
+    showBoom: boolean;             // Näita noolt
+  };
 }
 
 export interface SavedStyle {
@@ -89,7 +155,7 @@ export interface RecentTool {
   timestamp: number;
 }
 
-export type ToolType = 'select' | 'rectangle' | 'polygon' | 'calibrate' | 'measure_line' | 'crop' | 'coords' | 'arrow' | 'icon' | 'text' | 'bullet' | 'circle' | 'triangle' | 'callout' | 'axis_tool' | 'grid_tool' | 'square';
+export type ToolType = 'select' | 'rectangle' | 'polygon' | 'calibrate' | 'measure_line' | 'crop' | 'coords' | 'arrow' | 'icon' | 'text' | 'bullet' | 'circle' | 'triangle' | 'callout' | 'axis_tool' | 'grid_tool' | 'square' | 'crane';
 
 export interface Viewport {
   x: number;
