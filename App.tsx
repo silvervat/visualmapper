@@ -16,7 +16,7 @@ import ExportModal, { ExportOptions } from './components/ExportModal';
 import { Shape, ToolType, Viewport, CoordinateReference, Point, ProjectFile, ShapeType, PageConfig, SavedStyle, Sheet, RecentTool, AxisConfig } from './types';
 import { loadPdfPage } from './utils/pdf';
 import { doPolygonsIntersect, toRoman } from './utils/geometry';
-import { exportToPdf, exportToDxf, exportToGeoJson, exportToPng } from './utils/export';
+import { exportToPdf, exportToDxf, exportToGeoJson, exportToPng, exportToIfc } from './utils/export';
 import { COLORS } from './constants';
 import { Plus, X } from 'lucide-react';
 
@@ -670,6 +670,18 @@ const App = () => {
         const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
         downloadBlob(blob, `${filename}.geojson`);
         showSuccess('Eksport onnestus', 'GeoJSON fail on allalaaditud');
+      } else if (options.format === 'ifc') {
+        const ifcContent = exportToIfc({
+          sheet: activeSheet,
+          pixelsPerMeter,
+          useWorldCoordinates: options.useWorldCoordinates,
+          projectName: activeSheet.title || 'Visual Mapper Project',
+          floorName: activeSheet.floor || 'Korrus 1',
+          floorElevation: 0
+        });
+        const blob = new Blob([ifcContent], { type: 'application/x-step' });
+        downloadBlob(blob, `${filename}.ifc`);
+        showSuccess('Eksport onnestus', 'IFC fail on allalaaditud.\nFail on uhilduv Trimble Connect, Revit, ArchiCAD jt BIM rakendustega.');
       }
 
       setShowExportModal(false);

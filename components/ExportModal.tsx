@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
-import { X, Download, FileText, Map, Image, Settings } from 'lucide-react';
+import { X, Download, FileText, Map, Image, Settings, Building2 } from 'lucide-react';
 
-export type ExportFormat = 'png' | 'pdf' | 'dxf' | 'geojson';
+export type ExportFormat = 'png' | 'pdf' | 'dxf' | 'geojson' | 'ifc';
 
 export interface ExportOptions {
   format: ExportFormat;
@@ -67,6 +67,12 @@ const ExportModal: React.FC<ExportModalProps> = ({
       icon: <Settings size={20} className="text-blue-600" />
     },
     {
+      value: 'ifc',
+      label: 'IFC (BIM)',
+      description: 'Trimble Connect, Revit, BIM',
+      icon: <Building2 size={20} className="text-orange-600" />
+    },
+    {
       value: 'geojson',
       label: 'GeoJSON',
       description: 'GIS rakendused ja kaardid',
@@ -119,7 +125,7 @@ const ExportModal: React.FC<ExportModalProps> = ({
           </div>
 
           {/* Format-specific options */}
-          {(options.format === 'dxf' || options.format === 'geojson') && (
+          {(options.format === 'dxf' || options.format === 'geojson' || options.format === 'ifc') && (
             <div className="space-y-3 p-3 bg-gray-50 rounded-lg">
               <div className="flex items-center justify-between">
                 <label className="text-sm text-gray-700">Kasuta maailma koordinaate</label>

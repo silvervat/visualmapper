@@ -839,3 +839,286 @@ export const exportToPng = async (options: PngExportOptions): Promise<Blob> => {
     svgImg.src = url;
   });
 };
+
+
+// ============================================
+// IFC EXPORT (for Trimble Connect / BIM)
+// ============================================
+
+export interface IfcExportOptions {
+  sheet: Sheet;
+  pixelsPerMeter: number | null;
+  useWorldCoordinates: boolean;
+  projectName?: string;
+  siteName?: string;
+  buildingName?: string;
+  floorName?: string;
+  floorElevation?: number;
+}
+
+const generateIfcGuid = (): string => {
+  // Generate IFC-compatible GUID (22 character base64)
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
+  let result = '';
+  for (let i = 0; i < 22; i++) {
+    result += chars[Math.floor(Math.random() * 64)];
+  }
+  return result;
+};
+
+const formatIfcFloat = (n: number): string => n.toFixed(6);
+
+const formatIfcPoint = (x: number, y: number, z: number = 0): string => {
+  return `(${formatIfcFloat(x)},${formatIfcFloat(y)},${formatIfcFloat(z)})`;
+};
+
+export const exportToIfc = (options: IfcExportOptions): string => {
+  const {
+    sheet,
+    pixelsPerMeter,
+    useWorldCoordinates,
+    projectName = 'Visual Mapper Project',
+    siteName = 'Site',
+    buildingName = 'Building',
+    floorName = sheet.floor || 'Floor',
+    floorElevation = 0
+  } = options;
+
+  const coordRefs = sheet.coordRefs;
+  const shapes = sheet.shapes.filter(s => s.visible !== false);
+
+  // Coordinate transformation
+  const transformPoint = (p: Point): { x: number; y: number; z: number } => {
+    if (useWorldCoordinates && coordRefs.length === 2) {
+      const world = transformPointToWorld(p, coordRefs[0], coordRefs[1]);
+      return { x: world.x, y: world.y, z: world.z || floorElevation };
+    } else if (pixelsPerMeter) {
+      return {
+        x: p.x / pixelsPerMeter,
+        y: -p.y / pixelsPerMeter,
+        z: floorElevation
+      };
+    } else {
+      return { x: p.x / 1000, y: -p.y / 1000, z: floorElevation };
+    }
+  };
+
+  // Generate GUIDs for all entities
+  const projectGuid = generateIfcGuid();
+  const siteGuid = generateIfcGuid();
+  const buildingGuid = generateIfcGuid();
+  const storeyGuid = generateIfcGuid();
+  const ownerHistoryGuid = generateIfcGuid();
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const dateStr = new Date().toISOString().split('T')[0];
+
+  // Build IFC content
+  let entityId = 1;
+  const entities: string[] = [];
+
+  // Header section
+  const header = `ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('${sheet.title || 'export'}.ifc','${dateStr}',('Visual Mapper'),(''),'',' ','');
+FILE_SCHEMA(('IFC2X3'));
+ENDSEC;
+
+DATA;
+`;
+
+  // Add basic required entities
+  const personId = entityId++;
+  entities.push(`#${personId}=IFCPERSON($,$,'Visual Mapper',$,$,$,$,$);`);
+
+  const orgId = entityId++;
+  entities.push(`#${orgId}=IFCORGANIZATION($,'Visual Mapper','Visual Mapper Application',$,$);`);
+
+  const personOrgId = entityId++;
+  entities.push(`#${personOrgId}=IFCPERSONANDORGANIZATION(#${personId},#${orgId},$);`);
+
+  const appId = entityId++;
+  entities.push(`#${appId}=IFCAPPLICATION(#${orgId},'1.0','Visual Mapper','VisualMapper');`);
+
+  const ownerHistoryId = entityId++;
+  entities.push(`#${ownerHistoryId}=IFCOWNERHISTORY(#${personOrgId},#${appId},$,.NOCHANGE.,$,#${personOrgId},#${appId},${timestamp});`);
+
+  // Unit assignments
+  const lengthUnitId = entityId++;
+  entities.push(`#${lengthUnitId}=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);`);
+
+  const areaUnitId = entityId++;
+  entities.push(`#${areaUnitId}=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);`);
+
+  const volumeUnitId = entityId++;
+  entities.push(`#${volumeUnitId}=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);`);
+
+  const angleUnitId = entityId++;
+  entities.push(`#${angleUnitId}=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);`);
+
+  const unitAssignId = entityId++;
+  entities.push(`#${unitAssignId}=IFCUNITASSIGNMENT((#${lengthUnitId},#${areaUnitId},#${volumeUnitId},#${angleUnitId}));`);
+
+  // Geometric context
+  const originId = entityId++;
+  entities.push(`#${originId}=IFCCARTESIANPOINT((0.,0.,0.));`);
+
+  const dirZId = entityId++;
+  entities.push(`#${dirZId}=IFCDIRECTION((0.,0.,1.));`);
+
+  const dirXId = entityId++;
+  entities.push(`#${dirXId}=IFCDIRECTION((1.,0.,0.));`);
+
+  const axis2PlacementId = entityId++;
+  entities.push(`#${axis2PlacementId}=IFCAXIS2PLACEMENT3D(#${originId},#${dirZId},#${dirXId});`);
+
+  const geomContextId = entityId++;
+  entities.push(`#${geomContextId}=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#${axis2PlacementId},$);`);
+
+  const geomSubContextId = entityId++;
+  entities.push(`#${geomSubContextId}=IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,#${geomContextId},$,.MODEL_VIEW.,$);`);
+
+  // Project
+  const projectId = entityId++;
+  entities.push(`#${projectId}=IFCPROJECT('${projectGuid}',#${ownerHistoryId},'${projectName}',$,$,$,$,(#${geomContextId}),#${unitAssignId});`);
+
+  // Site placement
+  const sitePlacementId = entityId++;
+  entities.push(`#${sitePlacementId}=IFCLOCALPLACEMENT($,#${axis2PlacementId});`);
+
+  // Site
+  const siteId = entityId++;
+  entities.push(`#${siteId}=IFCSITE('${siteGuid}',#${ownerHistoryId},'${siteName}',$,$,#${sitePlacementId},$,$,.ELEMENT.,$,$,$,$,$);`);
+
+  // Building placement
+  const buildingPlacementId = entityId++;
+  entities.push(`#${buildingPlacementId}=IFCLOCALPLACEMENT(#${sitePlacementId},#${axis2PlacementId});`);
+
+  // Building
+  const buildingId = entityId++;
+  entities.push(`#${buildingId}=IFCBUILDING('${buildingGuid}',#${ownerHistoryId},'${buildingName}',$,$,#${buildingPlacementId},$,$,.ELEMENT.,$,$,$);`);
+
+  // Storey placement
+  const storeyOriginId = entityId++;
+  entities.push(`#${storeyOriginId}=IFCCARTESIANPOINT((0.,0.,${formatIfcFloat(floorElevation * 1000)}));`);
+
+  const storeyAxis2PlacementId = entityId++;
+  entities.push(`#${storeyAxis2PlacementId}=IFCAXIS2PLACEMENT3D(#${storeyOriginId},#${dirZId},#${dirXId});`);
+
+  const storeyPlacementId = entityId++;
+  entities.push(`#${storeyPlacementId}=IFCLOCALPLACEMENT(#${buildingPlacementId},#${storeyAxis2PlacementId});`);
+
+  // Building Storey
+  const storeyId = entityId++;
+  entities.push(`#${storeyId}=IFCBUILDINGSTOREY('${storeyGuid}',#${ownerHistoryId},'${floorName}',$,$,#${storeyPlacementId},$,$,.ELEMENT.,${formatIfcFloat(floorElevation * 1000)});`);
+
+  // Aggregation relationships
+  const relSiteId = entityId++;
+  entities.push(`#${relSiteId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${projectId},(#${siteId}));`);
+
+  const relBuildingId = entityId++;
+  entities.push(`#${relBuildingId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${siteId},(#${buildingId}));`);
+
+  const relStoreyId = entityId++;
+  entities.push(`#${relStoreyId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${buildingId},(#${storeyId}));`);
+
+  // Create spaces for each polygon/rectangle area
+  const spaceIds: number[] = [];
+
+  for (const shape of shapes) {
+    if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square') {
+      const spaceGuid = generateIfcGuid();
+      const spaceName = shape.label || `Space_${shape.id}`;
+
+      // Transform points to meters (IFC uses mm internally but we'll use the meter values)
+      const points = shape.points.map(transformPoint);
+
+      // Calculate area
+      let areaSqM = 0;
+      if (pixelsPerMeter) {
+        const areaPx = getPolygonArea(shape.points);
+        areaSqM = areaPx / (pixelsPerMeter * pixelsPerMeter);
+      }
+
+      // Create polyline for the space boundary
+      const polylinePointIds: number[] = [];
+      for (const pt of points) {
+        const ptId = entityId++;
+        entities.push(`#${ptId}=IFCCARTESIANPOINT((${formatIfcFloat(pt.x * 1000)},${formatIfcFloat(pt.y * 1000)}));`);
+        polylinePointIds.push(ptId);
+      }
+      // Close the polyline
+      polylinePointIds.push(polylinePointIds[0]);
+
+      const polylineId = entityId++;
+      entities.push(`#${polylineId}=IFCPOLYLINE((${polylinePointIds.map(id => '#' + id).join(',')}));`);
+
+      // Create arbitrary closed profile
+      const profileId = entityId++;
+      entities.push(`#${profileId}=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#${polylineId});`);
+
+      // Extrude direction (up)
+      const extrudeDirId = entityId++;
+      entities.push(`#${extrudeDirId}=IFCDIRECTION((0.,0.,1.));`);
+
+      // Create extruded area solid (height = 100mm for visualization)
+      const solidId = entityId++;
+      entities.push(`#${solidId}=IFCEXTRUDEDAREASOLID(#${profileId},#${axis2PlacementId},#${extrudeDirId},100.);`);
+
+      // Shape representation
+      const shapeRepId = entityId++;
+      entities.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Body','SweptSolid',(#${solidId}));`);
+
+      const prodDefShapeId = entityId++;
+      entities.push(`#${prodDefShapeId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${shapeRepId}));`);
+
+      // Space placement
+      const spacePlacementId = entityId++;
+      entities.push(`#${spacePlacementId}=IFCLOCALPLACEMENT(#${storeyPlacementId},#${axis2PlacementId});`);
+
+      // Create space
+      const spaceId = entityId++;
+      entities.push(`#${spaceId}=IFCSPACE('${spaceGuid}',#${ownerHistoryId},'${spaceName}',$,$,#${spacePlacementId},#${prodDefShapeId},$,.ELEMENT.,.INTERNAL.,$);`);
+      spaceIds.push(spaceId);
+
+      // Add area quantity if calibrated
+      if (areaSqM > 0) {
+        const areaQtyId = entityId++;
+        entities.push(`#${areaQtyId}=IFCQUANTITYAREA('GrossFloorArea',$,$,${formatIfcFloat(areaSqM)},$);`);
+
+        const qtySetId = entityId++;
+        entities.push(`#${qtySetId}=IFCELEMENTQUANTITY('${generateIfcGuid()}',#${ownerHistoryId},'BaseQuantities',$,$,(#${areaQtyId}));`);
+
+        const relQtyId = entityId++;
+        entities.push(`#${relQtyId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${qtySetId});`);
+      }
+
+      // Add color property
+      const colorPropId = entityId++;
+      entities.push(`#${colorPropId}=IFCPROPERTYSINGLEVALUE('Color',$,IFCTEXT('${shape.color}'),$);`);
+
+      const labelPropId = entityId++;
+      entities.push(`#${labelPropId}=IFCPROPERTYSINGLEVALUE('Label',$,IFCTEXT('${shape.label || ''}'),$);`);
+
+      const propSetId = entityId++;
+      entities.push(`#${propSetId}=IFCPROPERTYSET('${generateIfcGuid()}',#${ownerHistoryId},'VisualMapper_Properties',$,(#${colorPropId},#${labelPropId}));`);
+
+      const relPropId = entityId++;
+      entities.push(`#${relPropId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${propSetId});`);
+    }
+  }
+
+  // Relate spaces to storey
+  if (spaceIds.length > 0) {
+    const relSpacesId = entityId++;
+    entities.push(`#${relSpacesId}=IFCRELCONTAINEDINSPATIALSTRUCTURE('${generateIfcGuid()}',#${ownerHistoryId},$,$,(${spaceIds.map(id => '#' + id).join(',')}),#${storeyId});`);
+  }
+
+  // Footer
+  const footer = `ENDSEC;
+END-ISO-10303-21;
+`;
+
+  return header + entities.join('\n') + '\n' + footer;
+};
