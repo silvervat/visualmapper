@@ -584,8 +584,112 @@ export const doPolygonsIntersect = (poly1: Point[], poly2: Point[]) => {
   
   if (isPointInPolygon(p1[0], p2)) return true;
   if (isPointInPolygon(p2[0], p1)) return true;
-  
+
   return false;
+};
+
+// Calculate Minimum Translation Vector to separate overlapping polygons
+// Uses Separating Axis Theorem (SAT) to find the smallest displacement
+export const calculateMTV = (movingPoly: Point[], staticPoly: Point[]): Point | null => {
+  const getEdges = (poly: Point[]): Point[] => {
+    const edges: Point[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const p1 = poly[i];
+      const p2 = poly[(i + 1) % poly.length];
+      edges.push({ x: p2.x - p1.x, y: p2.y - p1.y });
+    }
+    return edges;
+  };
+
+  const normalize = (v: Point): Point => {
+    const len = Math.sqrt(v.x * v.x + v.y * v.y);
+    if (len === 0) return { x: 0, y: 0 };
+    return { x: v.x / len, y: v.y / len };
+  };
+
+  const perpendicular = (v: Point): Point => ({ x: -v.y, y: v.x });
+
+  const projectPolygon = (poly: Point[], axis: Point): { min: number; max: number } => {
+    let min = poly[0].x * axis.x + poly[0].y * axis.y;
+    let max = min;
+    for (let i = 1; i < poly.length; i++) {
+      const proj = poly[i].x * axis.x + poly[i].y * axis.y;
+      if (proj < min) min = proj;
+      if (proj > max) max = proj;
+    }
+    return { min, max };
+  };
+
+  const edges1 = getEdges(movingPoly);
+  const edges2 = getEdges(staticPoly);
+  const allEdges = [...edges1, ...edges2];
+
+  let minOverlap = Infinity;
+  let mtvAxis: Point | null = null;
+
+  for (const edge of allEdges) {
+    const axis = normalize(perpendicular(edge));
+    if (axis.x === 0 && axis.y === 0) continue;
+
+    const proj1 = projectPolygon(movingPoly, axis);
+    const proj2 = projectPolygon(staticPoly, axis);
+
+    // Check for gap (no overlap on this axis means no collision)
+    if (proj1.max < proj2.min || proj2.max < proj1.min) {
+      return null; // No overlap, polygons are separated
+    }
+
+    // Calculate overlap amount
+    const overlap = Math.min(proj1.max - proj2.min, proj2.max - proj1.min);
+    if (overlap < minOverlap) {
+      minOverlap = overlap;
+      mtvAxis = axis;
+    }
+  }
+
+  if (!mtvAxis) return null;
+
+  // Determine direction: MTV should push movingPoly away from staticPoly
+  const movingCenter = getCentroid(movingPoly);
+  const staticCenter = getCentroid(staticPoly);
+  const centerToCenter = { x: movingCenter.x - staticCenter.x, y: movingCenter.y - staticCenter.y };
+  const dot = centerToCenter.x * mtvAxis.x + centerToCenter.y * mtvAxis.y;
+
+  // Add a small buffer (1 pixel) to ensure no overlap after translation
+  const buffer = 1;
+  if (dot < 0) {
+    return { x: -mtvAxis.x * (minOverlap + buffer), y: -mtvAxis.y * (minOverlap + buffer) };
+  } else {
+    return { x: mtvAxis.x * (minOverlap + buffer), y: mtvAxis.y * (minOverlap + buffer) };
+  }
+};
+
+// Resolve all overlaps by calculating combined MTV for a polygon against multiple static polygons
+export const resolveAllOverlaps = (movingPoly: Point[], staticPolygons: Point[][]): Point[] => {
+  let currentPoly = [...movingPoly.map(p => ({ ...p }))];
+  const maxIterations = 10; // Prevent infinite loops
+
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    let hasOverlap = false;
+
+    for (const staticPoly of staticPolygons) {
+      if (doPolygonsIntersect(currentPoly, staticPoly)) {
+        hasOverlap = true;
+        const mtv = calculateMTV(currentPoly, staticPoly);
+        if (mtv) {
+          // Apply translation
+          currentPoly = currentPoly.map(p => ({
+            x: p.x + mtv.x,
+            y: p.y + mtv.y
+          }));
+        }
+      }
+    }
+
+    if (!hasOverlap) break;
+  }
+
+  return currentPoly;
 };
 
 export const getNextLabel = (startLabel: string, index: number, reverse: boolean) => {
