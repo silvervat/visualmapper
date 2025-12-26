@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Shape, SavedStyle, ToolType, CoordinateReference, GridConfig } from '../types';
 import { Trash2, Copy, Sliders, Type, Layers, ArrowRight, Star, ListOrdered, Image as ImageIcon, Eye, EyeOff, Lock, Unlock, ChevronDown, ChevronRight, Zap, X, PaintBucket, Circle, Square, Minus, MessageSquare, Triangle, MapPin, Ruler, Search, Palette, MoreHorizontal, Plus, Grid, Check } from 'lucide-react';
 import { getPolygonArea, getPolygonPerimeter } from '../utils/geometry';
-import { getIconComponent } from '../utils/icons';
+import { getIconByName } from './IconPickerModal';
 import { COLORS } from '../constants';
 
 interface SidebarProps {
@@ -241,7 +241,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           case 'line': return <Minus size={14} className="text-gray-500" />;
           case 'image': return <ImageIcon size={14} className="text-gray-500" />;
           case 'icon': {
-             const IconCmp = getIconComponent(iconName || 'Elekter');
+             const IconCmp = getIconByName(iconName || 'Elekter');
+             if (!IconCmp) return <Circle size={14} className="text-gray-500" />;
              return <IconCmp size={14} className="text-gray-500" />;
           }
           case 'text': return <Type size={14} className="text-gray-500" />;
@@ -300,8 +301,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="space-y-2 pt-2 border-t border-blue-200 mt-2">
           <label className="text-xs font-medium text-gray-600 flex items-center gap-1"><Type size={12}/> Tüpograafia</label>
           <div className="grid grid-cols-2 gap-2">
-              <select 
-                value={shapeForControls?.fontFamily || 'Arial'} 
+              <select
+                value={shapeForControls?.fontFamily || 'Arial'}
                 onChange={(e) => handleUpdate({ fontFamily: e.target.value })}
                 className="text-xs border border-gray-300 rounded p-1 w-full"
               >
@@ -313,13 +314,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <option value="Inter">Inter</option>
               </select>
               <div className="flex gap-1">
-                  <button 
+                  <button
                     onClick={() => handleUpdate({ fontWeight: shapeForControls?.fontWeight === 'bold' ? 'normal' : 'bold' })}
                     className={`flex-1 border rounded text-xs font-bold ${shapeForControls?.fontWeight === 'bold' ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-white text-gray-600'}`}
                   >
                       B
                   </button>
-                  <button 
+                  <button
                     onClick={() => handleUpdate({ fontStyle: shapeForControls?.fontStyle === 'italic' ? 'normal' : 'italic' })}
                     className={`flex-1 border rounded text-xs italic ${shapeForControls?.fontStyle === 'italic' ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-white text-gray-600'}`}
                   >
@@ -327,19 +328,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </button>
               </div>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-2">
              <div>
                 <label className="text-[10px] text-gray-500">Suurus</label>
-                <input 
-                    type="number" 
-                    value={shapeForControls?.fontSize || 16} 
+                <input
+                    type="number"
+                    value={shapeForControls?.fontSize || 16}
                     onChange={(e) => handleUpdate({ fontSize: parseInt(e.target.value) })}
                     className="w-full text-xs border border-gray-300 rounded p-1"
                 />
              </div>
              <div className="flex items-end">
-                 <select 
+                 <select
                     value={shapeForControls?.textStyle || 'simple'}
                     onChange={(e) => handleUpdate({ textStyle: e.target.value as any })}
                     className="w-full text-xs border border-gray-300 rounded p-1"
@@ -350,12 +351,40 @@ const Sidebar: React.FC<SidebarProps> = ({
                  </select>
              </div>
           </div>
-          
-          {/* New Text Box Padding Control */}
+
+          {/* Text Color & Background Color */}
+          <div className="grid grid-cols-2 gap-2">
+              <div>
+                  <label className="text-[10px] text-gray-500 block mb-1">Teksti Värv</label>
+                  <div className="flex items-center gap-1">
+                      <input
+                          type="color"
+                          value={shapeForControls?.textColor || '#000000'}
+                          onChange={(e) => handleUpdate({ textColor: e.target.value })}
+                          className="w-8 h-8 cursor-pointer border border-gray-300 rounded"
+                      />
+                      <span className="text-[10px] text-gray-400 truncate">{shapeForControls?.textColor || '#000000'}</span>
+                  </div>
+              </div>
+              <div>
+                  <label className="text-[10px] text-gray-500 block mb-1">Tausta Värv</label>
+                  <div className="flex items-center gap-1">
+                      <input
+                          type="color"
+                          value={shapeForControls?.textBgColor || '#ffffff'}
+                          onChange={(e) => handleUpdate({ textBgColor: e.target.value })}
+                          className="w-8 h-8 cursor-pointer border border-gray-300 rounded"
+                      />
+                      <span className="text-[10px] text-gray-400 truncate">{shapeForControls?.textBgColor || '#ffffff'}</span>
+                  </div>
+              </div>
+          </div>
+
+          {/* Text Box Padding Control */}
           {shapeForControls?.textStyle === 'boxed' && (
               <div>
                   <label className="text-[10px] text-gray-500">Teksti Puhver (Padding)</label>
-                  <input 
+                  <input
                     type="range" min="0.1" max="2.0" step="0.1"
                     value={shapeForControls.textPadding ?? 0.6}
                     onChange={(e) => handleUpdate({ textPadding: parseFloat(e.target.value) })}
@@ -481,9 +510,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                     {/* BULLET CONFIGURATION */}
                     {shapeTypeForControls === 'bullet' && (
                         <div className="space-y-3 pb-2 border-b border-gray-200">
-                            <label className="text-xs font-bold text-gray-700 block">Sammude Tüüp</label>
-                            <select 
-                                value={shapeForControls.bulletType || 'numbers'} 
+                            <label className="text-xs font-bold text-gray-700 block">Sammu Seaded</label>
+                            <select
+                                value={shapeForControls.bulletType || 'numbers'}
                                 onChange={(e) => handleUpdate({ bulletType: e.target.value as any })}
                                 className="w-full text-xs border border-gray-300 rounded p-1"
                             >
@@ -491,6 +520,35 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 <option value="letters">Tähed (A, B, C...)</option>
                                 <option value="roman">Rooma numbrid (I, II, III...)</option>
                             </select>
+
+                            {/* Bullet Size */}
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-gray-500">Suurus (px)</label>
+                                <div className="flex gap-2 items-center">
+                                    <input
+                                        type="range" min="16" max="64" step="4"
+                                        value={shapeForControls.fontSize || 24}
+                                        onChange={(e) => handleUpdate({ fontSize: parseInt(e.target.value) })}
+                                        className="flex-1 accent-blue-600"
+                                    />
+                                    <input
+                                        type="number" min="12" max="128"
+                                        value={shapeForControls.fontSize || 24}
+                                        onChange={(e) => handleUpdate({ fontSize: parseInt(e.target.value) })}
+                                        className="w-14 text-xs border border-gray-300 rounded p-1 text-center"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Bullet Shape */}
+                            <div>
+                                <label className="text-[10px] text-gray-500 block mb-1">Kuju</label>
+                                <div className="flex bg-gray-200 p-1 rounded gap-1">
+                                    <button onClick={() => handleUpdate({ bulletShape: 'circle' })} className={`flex-1 py-1.5 rounded text-xs ${shapeForControls.bulletShape === 'circle' || !shapeForControls.bulletShape ? 'bg-white shadow' : ''}`}><Circle size={12} className="mx-auto"/></button>
+                                    <button onClick={() => handleUpdate({ bulletShape: 'square' })} className={`flex-1 py-1.5 rounded text-xs ${shapeForControls.bulletShape === 'square' ? 'bg-white shadow' : ''}`}><Square size={12} className="mx-auto"/></button>
+                                    <button onClick={() => handleUpdate({ bulletShape: 'triangle' })} className={`flex-1 py-1.5 rounded text-xs ${shapeForControls.bulletShape === 'triangle' ? 'bg-white shadow' : ''}`}><Triangle size={12} className="mx-auto"/></button>
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -635,18 +693,72 @@ const Sidebar: React.FC<SidebarProps> = ({
                         </div>
                     )}
 
-                    {/* ICONS */}
+                    {/* ICONS - Enhanced Configuration */}
                     {shapeTypeForControls === 'icon' && onOpenIconPicker && (
-                        <div className="space-y-2 mt-2">
-                            <button onClick={() => onOpenIconPicker(isEditingSelection && singleSelectedShape ? singleSelectedShape.id : null)} className="w-full flex justify-between border p-2 rounded bg-white hover:bg-gray-50">
-                                <span className="flex items-center gap-2 text-xs">{getShapeIcon('icon', shapeForControls.iconName)} {shapeForControls.iconName}</span>
+                        <div className="space-y-3 mt-2 p-2 bg-white border border-gray-200 rounded">
+                            <label className="text-xs font-bold text-gray-700 block">Ikooni Seaded</label>
+
+                            {/* Icon Picker Button */}
+                            <button onClick={() => onOpenIconPicker(isEditingSelection && singleSelectedShape ? singleSelectedShape.id : null)} className="w-full flex justify-between border p-2 rounded bg-gray-50 hover:bg-gray-100">
+                                <span className="flex items-center gap-2 text-xs">{getShapeIcon('icon', shapeForControls.iconName)} {shapeForControls.iconName || 'Vali ikoon'}</span>
                                 <span className="text-blue-500 text-xs font-bold">Muuda</span>
                             </button>
-                            <div className="flex bg-gray-200 p-1 rounded gap-1">
-                                <button onClick={() => handleUpdate({ iconStyle: 'circle' })} className={`flex-1 py-1 rounded text-xs ${shapeForControls.iconStyle === 'circle' ? 'bg-white shadow' : ''}`}><Circle size={12} className="mx-auto"/></button>
-                                <button onClick={() => handleUpdate({ iconStyle: 'square' })} className={`flex-1 py-1 rounded text-xs ${shapeForControls.iconStyle === 'square' ? 'bg-white shadow' : ''}`}><Square size={12} className="mx-auto"/></button>
-                                <button onClick={() => handleUpdate({ iconStyle: 'simple' })} className={`flex-1 py-1 rounded text-xs ${shapeForControls.iconStyle === 'simple' ? 'bg-white shadow' : ''}`}>Ilma</button>
+
+                            {/* Icon Size */}
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-gray-500">Suurus (px)</label>
+                                <div className="flex gap-2 items-center">
+                                    <input
+                                        type="range" min="16" max="128" step="4"
+                                        value={shapeForControls.fontSize || 32}
+                                        onChange={(e) => handleUpdate({ fontSize: parseInt(e.target.value) })}
+                                        className="flex-1 accent-blue-600"
+                                    />
+                                    <input
+                                        type="number" min="16" max="256"
+                                        value={shapeForControls.fontSize || 32}
+                                        onChange={(e) => handleUpdate({ fontSize: parseInt(e.target.value) })}
+                                        className="w-14 text-xs border border-gray-300 rounded p-1 text-center"
+                                    />
+                                </div>
                             </div>
+
+                            {/* Icon Style Buttons */}
+                            <div>
+                                <label className="text-[10px] text-gray-500 block mb-1">Tausta Stiil</label>
+                                <div className="flex bg-gray-200 p-1 rounded gap-1">
+                                    <button onClick={() => handleUpdate({ iconStyle: 'circle' })} className={`flex-1 py-1.5 rounded text-xs ${shapeForControls.iconStyle === 'circle' ? 'bg-white shadow' : ''}`}><Circle size={12} className="mx-auto"/></button>
+                                    <button onClick={() => handleUpdate({ iconStyle: 'square' })} className={`flex-1 py-1.5 rounded text-xs ${shapeForControls.iconStyle === 'square' ? 'bg-white shadow' : ''}`}><Square size={12} className="mx-auto"/></button>
+                                    <button onClick={() => handleUpdate({ iconStyle: 'simple' })} className={`flex-1 py-1.5 rounded text-xs ${shapeForControls.iconStyle === 'simple' ? 'bg-white shadow' : ''}`}>Ilma</button>
+                                </div>
+                            </div>
+
+                            {/* Icon Background Color (only when not 'simple') */}
+                            {shapeForControls.iconStyle !== 'simple' && (
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] text-gray-500 block mb-1">Tausta Värv</label>
+                                        <div className="flex items-center gap-1">
+                                            <input
+                                                type="color"
+                                                value={shapeForControls.iconBackgroundColor || '#ffffff'}
+                                                onChange={(e) => handleUpdate({ iconBackgroundColor: e.target.value })}
+                                                className="w-8 h-8 cursor-pointer border border-gray-300 rounded"
+                                            />
+                                            <span className="text-[10px] text-gray-400">{shapeForControls.iconBackgroundColor || '#ffffff'}</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-gray-500 block mb-1">Tausta Läbipaistvus</label>
+                                        <input
+                                            type="range" min="0" max="1" step="0.1"
+                                            value={shapeForControls.iconBackgroundOpacity ?? 0.8}
+                                            onChange={(e) => handleUpdate({ iconBackgroundOpacity: parseFloat(e.target.value) })}
+                                            className="w-full accent-blue-600"
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 

@@ -280,216 +280,20 @@ const formatDxfNumber = (n: number): string => {
   return n.toFixed(6);
 };
 
-const dxfHeader = (minX: number, minY: number, maxX: number, maxY: number): string => {
-  return `0
-SECTION
-2
-HEADER
-9
-$ACADVER
-1
-AC1015
-9
-$INSBASE
-10
-0.0
-20
-0.0
-30
-0.0
-9
-$EXTMIN
-10
-${formatDxfNumber(minX)}
-20
-${formatDxfNumber(minY)}
-30
-0.0
-9
-$EXTMAX
-10
-${formatDxfNumber(maxX)}
-20
-${formatDxfNumber(maxY)}
-30
-0.0
-0
-ENDSEC
-`;
+// Generate a unique handle for DXF entities
+let dxfHandleCounter = 100;
+const getHandle = (): string => {
+  return (dxfHandleCounter++).toString(16).toUpperCase();
 };
 
-const dxfTables = (layers: string[]): string => {
-  let result = `0
-SECTION
-2
-TABLES
-0
-TABLE
-2
-LAYER
-70
-${layers.length}
-`;
-
-  const colors: Record<string, number> = {
-    'AREAS': 1,      // Red
-    'LINES': 3,      // Green
-    'AXES': 5,       // Blue
-    'LABELS': 7,     // White
-    'DIMENSIONS': 4, // Cyan
-    'DEFAULT': 7
-  };
-
-  for (const layer of layers) {
-    const color = colors[layer] || 7;
-    result += `0
-LAYER
-2
-${layer}
-70
-0
-62
-${color}
-6
-CONTINUOUS
-`;
-  }
-
-  result += `0
-ENDTAB
-0
-ENDSEC
-`;
-
-  return result;
-};
-
-const dxfEntitiesStart = (): string => {
-  return `0
-SECTION
-2
-ENTITIES
-`;
-};
-
-const dxfEntitiesEnd = (): string => {
-  return `0
-ENDSEC
-0
-EOF
-`;
-};
-
-const dxfPolyline = (points: { x: number; y: number; z?: number }[], layer: string, closed: boolean = true): string => {
-  let result = `0
-LWPOLYLINE
-8
-${layer}
-90
-${points.length}
-70
-${closed ? 1 : 0}
-`;
-
-  for (const p of points) {
-    result += `10
-${formatDxfNumber(p.x)}
-20
-${formatDxfNumber(p.y)}
-`;
-  }
-
-  return result;
-};
-
-const dxfLine = (p1: { x: number; y: number }, p2: { x: number; y: number }, layer: string): string => {
-  return `0
-LINE
-8
-${layer}
-10
-${formatDxfNumber(p1.x)}
-20
-${formatDxfNumber(p1.y)}
-30
-0.0
-11
-${formatDxfNumber(p2.x)}
-21
-${formatDxfNumber(p2.y)}
-31
-0.0
-`;
-};
-
-const dxfCircle = (center: { x: number; y: number }, radius: number, layer: string): string => {
-  return `0
-CIRCLE
-8
-${layer}
-10
-${formatDxfNumber(center.x)}
-20
-${formatDxfNumber(center.y)}
-30
-0.0
-40
-${formatDxfNumber(radius)}
-`;
-};
-
-const dxfText = (pos: { x: number; y: number }, text: string, height: number, layer: string): string => {
-  return `0
-TEXT
-8
-${layer}
-10
-${formatDxfNumber(pos.x)}
-20
-${formatDxfNumber(pos.y)}
-30
-0.0
-40
-${formatDxfNumber(height)}
-1
-${text}
-72
-1
-73
-2
-11
-${formatDxfNumber(pos.x)}
-21
-${formatDxfNumber(pos.y)}
-31
-0.0
-`;
-};
-
-const dxfMText = (pos: { x: number; y: number }, text: string, height: number, layer: string): string => {
-  return `0
-MTEXT
-8
-${layer}
-10
-${formatDxfNumber(pos.x)}
-20
-${formatDxfNumber(pos.y)}
-30
-0.0
-40
-${formatDxfNumber(height)}
-71
-1
-72
-1
-1
-${text}
-`;
+const resetHandleCounter = () => {
+  dxfHandleCounter = 100;
 };
 
 export const exportToDxf = (options: DxfExportOptions): string => {
   const { sheet, pixelsPerMeter, useWorldCoordinates, includeLabels, includeMeasurements, layerPrefix = '' } = options;
+
+  resetHandleCounter();
 
   const shapes = sheet.shapes.filter(s => s.visible !== false);
   const coordRefs = sheet.coordRefs;
@@ -530,19 +334,166 @@ export const exportToDxf = (options: DxfExportOptions): string => {
   const maxX = Math.max(...allPoints.map(p => p.x)) + 10;
   const maxY = Math.max(...allPoints.map(p => p.y)) + 10;
 
-  // Define layers
-  const layers = [
-    `${layerPrefix}AREAS`,
-    `${layerPrefix}LINES`,
-    `${layerPrefix}AXES`,
-    `${layerPrefix}LABELS`,
-    `${layerPrefix}DIMENSIONS`
+  // Define layers with colors (AutoCAD color indices)
+  const layerDefs = [
+    { name: `${layerPrefix}AREAS`, color: 1 },      // Red
+    { name: `${layerPrefix}LINES`, color: 3 },      // Green
+    { name: `${layerPrefix}AXES`, color: 5 },       // Blue
+    { name: `${layerPrefix}LABELS`, color: 7 },     // White
+    { name: `${layerPrefix}DIMENSIONS`, color: 4 }, // Cyan
+    { name: '0', color: 7 }                          // Default layer
   ];
 
-  // Build DXF content
-  let dxf = dxfHeader(minX, minY, maxX, maxY);
-  dxf += dxfTables(layers);
-  dxf += dxfEntitiesStart();
+  // Build DXF content - Using R12 format for maximum compatibility
+  let dxf = '';
+
+  // ===== HEADER SECTION =====
+  dxf += `0
+SECTION
+2
+HEADER
+9
+$ACADVER
+1
+AC1009
+9
+$INSBASE
+10
+0.0
+20
+0.0
+30
+0.0
+9
+$EXTMIN
+10
+${formatDxfNumber(minX)}
+20
+${formatDxfNumber(minY)}
+30
+0.0
+9
+$EXTMAX
+10
+${formatDxfNumber(maxX)}
+20
+${formatDxfNumber(maxY)}
+30
+0.0
+9
+$LIMMIN
+10
+${formatDxfNumber(minX)}
+20
+${formatDxfNumber(minY)}
+9
+$LIMMAX
+10
+${formatDxfNumber(maxX)}
+20
+${formatDxfNumber(maxY)}
+0
+ENDSEC
+`;
+
+  // ===== TABLES SECTION =====
+  dxf += `0
+SECTION
+2
+TABLES
+0
+TABLE
+2
+LTYPE
+70
+1
+0
+LTYPE
+2
+CONTINUOUS
+70
+0
+3
+Solid line
+72
+65
+73
+0
+40
+0.0
+0
+ENDTAB
+0
+TABLE
+2
+LAYER
+70
+${layerDefs.length}
+`;
+
+  for (const layer of layerDefs) {
+    dxf += `0
+LAYER
+2
+${layer.name}
+70
+0
+62
+${layer.color}
+6
+CONTINUOUS
+`;
+  }
+
+  dxf += `0
+ENDTAB
+0
+TABLE
+2
+STYLE
+70
+1
+0
+STYLE
+2
+STANDARD
+70
+0
+40
+0.0
+41
+1.0
+50
+0.0
+71
+0
+42
+0.2
+3
+txt
+4
+
+0
+ENDTAB
+0
+ENDSEC
+`;
+
+  // ===== BLOCKS SECTION (required even if empty) =====
+  dxf += `0
+SECTION
+2
+BLOCKS
+0
+ENDSEC
+`;
+
+  // ===== ENTITIES SECTION =====
+  dxf += `0
+SECTION
+2
+ENTITIES
+`;
 
   // Process shapes
   for (const shape of shapes) {
@@ -550,14 +501,44 @@ export const exportToDxf = (options: DxfExportOptions): string => {
 
     if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square' || shape.type === 'triangle') {
       const points = shape.points.map(transformPoint);
-      dxf += dxfPolyline(points, layer, true);
+
+      // Draw polyline (using 3D polyline for R12 compatibility)
+      dxf += `0
+POLYLINE
+8
+${layer}
+66
+1
+70
+1
+`;
+
+      for (const p of points) {
+        dxf += `0
+VERTEX
+8
+${layer}
+10
+${formatDxfNumber(p.x)}
+20
+${formatDxfNumber(p.y)}
+30
+0.0
+`;
+      }
+
+      dxf += `0
+SEQEND
+8
+${layer}
+`;
 
       // Add label
       if (includeLabels && shape.label) {
         const centroid = getCentroid(shape.points);
         const tc = transformPoint(centroid);
         const textHeight = pixelsPerMeter ? 0.3 : 20;
-        dxf += dxfText(tc, shape.label, textHeight, `${layerPrefix}LABELS`);
+        dxf += createDxfText(tc, shape.label, textHeight, `${layerPrefix}LABELS`);
       }
 
       // Add measurements
@@ -569,19 +550,19 @@ export const exportToDxf = (options: DxfExportOptions): string => {
           const areaPx = getPolygonArea(shape.points);
           const areaM2 = areaPx / (pixelsPerMeter * pixelsPerMeter);
           const textHeight = pixelsPerMeter ? 0.2 : 15;
-          dxf += dxfText({ x: tc.x, y: tc.y - textHeight * 1.5 }, `${areaM2.toFixed(2)} m2`, textHeight, `${layerPrefix}DIMENSIONS`);
+          dxf += createDxfText({ x: tc.x, y: tc.y - textHeight * 2, z: 0 }, `${areaM2.toFixed(2)} m2`, textHeight, `${layerPrefix}DIMENSIONS`);
         }
 
         if (shape.showPerimeter) {
           const perimPx = getPolygonPerimeter(shape.points);
           const perimM = perimPx / pixelsPerMeter;
           const textHeight = pixelsPerMeter ? 0.2 : 15;
-          dxf += dxfText({ x: tc.x, y: tc.y - textHeight * 3 }, `P: ${perimM.toFixed(2)} m`, textHeight, `${layerPrefix}DIMENSIONS`);
+          dxf += createDxfText({ x: tc.x, y: tc.y - textHeight * 4, z: 0 }, `P: ${perimM.toFixed(2)} m`, textHeight, `${layerPrefix}DIMENSIONS`);
         }
       }
     } else if (shape.type === 'line' || shape.type === 'arrow') {
       const [p1, p2] = shape.points.map(transformPoint);
-      dxf += dxfLine(p1, p2, layer);
+      dxf += createDxfLine(p1, p2, layer);
 
       // Add measurement for lines
       if (includeMeasurements && pixelsPerMeter && shape.type === 'line') {
@@ -589,41 +570,41 @@ export const exportToDxf = (options: DxfExportOptions): string => {
         const tm = transformPoint(mid);
         const dist = getDistance(shape.points[0], shape.points[1]) / pixelsPerMeter;
         const textHeight = pixelsPerMeter ? 0.15 : 10;
-        dxf += dxfText(tm, `${dist.toFixed(2)} m`, textHeight, `${layerPrefix}DIMENSIONS`);
+        dxf += createDxfText(tm, `${dist.toFixed(2)} m`, textHeight, `${layerPrefix}DIMENSIONS`);
       }
     } else if (shape.type === 'circle') {
       const center = transformPoint(shape.points[0]);
       const edge = transformPoint(shape.points[1]);
       const radius = Math.sqrt(Math.pow(edge.x - center.x, 2) + Math.pow(edge.y - center.y, 2));
-      dxf += dxfCircle(center, radius, layer);
+      dxf += createDxfCircle(center, radius, layer);
     } else if (shape.type === 'text') {
       const pos = transformPoint(shape.points[0]);
       const textHeight = (shape.fontSize || 24) / (pixelsPerMeter || 100);
-      dxf += dxfText(pos, shape.label, textHeight, `${layerPrefix}LABELS`);
+      dxf += createDxfText(pos, shape.label, textHeight, `${layerPrefix}LABELS`);
     } else if (shape.type === 'axis' && shape.axisConfig) {
       const { lines, labels } = getAxisSystemPoints(shape.points[0], shape.points[1], shape.axisConfig, pixelsPerMeter);
 
       for (const [p1, p2] of lines) {
         const tp1 = transformPoint(p1);
         const tp2 = transformPoint(p2);
-        dxf += dxfLine(tp1, tp2, `${layerPrefix}AXES`);
+        dxf += createDxfLine(tp1, tp2, `${layerPrefix}AXES`);
       }
 
       if (includeLabels) {
         for (const label of labels) {
           const tp = transformPoint(label.pos);
           const textHeight = pixelsPerMeter ? 0.2 : 15;
-          dxf += dxfText(tp, label.text, textHeight, `${layerPrefix}LABELS`);
+          dxf += createDxfText(tp, label.text, textHeight, `${layerPrefix}LABELS`);
         }
       }
     } else if (shape.type === 'bullet') {
       const pos = transformPoint(shape.points[0]);
       const radius = ((shape.fontSize || 24) / 2) / (pixelsPerMeter || 100);
-      dxf += dxfCircle(pos, radius, layer);
+      dxf += createDxfCircle(pos, radius, layer);
 
       if (includeLabels && shape.bulletLabel) {
         const textHeight = ((shape.fontSize || 24) * 0.6) / (pixelsPerMeter || 100);
-        dxf += dxfText(pos, shape.bulletLabel, textHeight, `${layerPrefix}LABELS`);
+        dxf += createDxfText(pos, shape.bulletLabel, textHeight, `${layerPrefix}LABELS`);
       }
     }
   }
@@ -632,14 +613,87 @@ export const exportToDxf = (options: DxfExportOptions): string => {
   if (useWorldCoordinates && coordRefs.length === 2) {
     for (const ref of coordRefs) {
       const tp = transformPoint(ref.pixel);
-      dxf += dxfCircle(tp, 0.5, `${layerPrefix}DIMENSIONS`);
-      dxf += dxfText({ x: tp.x + 0.6, y: tp.y }, `REF${ref.id}: (${ref.world.x.toFixed(3)}, ${ref.world.y.toFixed(3)})`, 0.2, `${layerPrefix}DIMENSIONS`);
+      dxf += createDxfCircle(tp, 0.5, `${layerPrefix}DIMENSIONS`);
+      dxf += createDxfText({ x: tp.x + 0.6, y: tp.y, z: 0 }, `REF${ref.id}: (${ref.world.x.toFixed(3)}, ${ref.world.y.toFixed(3)})`, 0.2, `${layerPrefix}DIMENSIONS`);
     }
   }
 
-  dxf += dxfEntitiesEnd();
+  // ===== END SECTION =====
+  dxf += `0
+ENDSEC
+0
+EOF
+`;
 
   return dxf;
+};
+
+// Helper functions for DXF entities
+const createDxfLine = (p1: { x: number; y: number; z?: number }, p2: { x: number; y: number; z?: number }, layer: string): string => {
+  return `0
+LINE
+8
+${layer}
+10
+${formatDxfNumber(p1.x)}
+20
+${formatDxfNumber(p1.y)}
+30
+${formatDxfNumber(p1.z || 0)}
+11
+${formatDxfNumber(p2.x)}
+21
+${formatDxfNumber(p2.y)}
+31
+${formatDxfNumber(p2.z || 0)}
+`;
+};
+
+const createDxfCircle = (center: { x: number; y: number; z?: number }, radius: number, layer: string): string => {
+  return `0
+CIRCLE
+8
+${layer}
+10
+${formatDxfNumber(center.x)}
+20
+${formatDxfNumber(center.y)}
+30
+${formatDxfNumber(center.z || 0)}
+40
+${formatDxfNumber(radius)}
+`;
+};
+
+const createDxfText = (pos: { x: number; y: number; z?: number }, text: string, height: number, layer: string): string => {
+  // Escape special characters for DXF
+  const escapedText = text.replace(/\\/g, '\\\\').replace(/\n/g, '\\P');
+
+  return `0
+TEXT
+8
+${layer}
+10
+${formatDxfNumber(pos.x)}
+20
+${formatDxfNumber(pos.y)}
+30
+${formatDxfNumber(pos.z || 0)}
+40
+${formatDxfNumber(height)}
+1
+${escapedText}
+72
+1
+11
+${formatDxfNumber(pos.x)}
+21
+${formatDxfNumber(pos.y)}
+31
+${formatDxfNumber(pos.z || 0)}
+73
+2
+`;
 };
 
 const getShapeLayer = (type: string): string => {
@@ -838,4 +892,287 @@ export const exportToPng = async (options: PngExportOptions): Promise<Blob> => {
 
     svgImg.src = url;
   });
+};
+
+
+// ============================================
+// IFC EXPORT (for Trimble Connect / BIM)
+// ============================================
+
+export interface IfcExportOptions {
+  sheet: Sheet;
+  pixelsPerMeter: number | null;
+  useWorldCoordinates: boolean;
+  projectName?: string;
+  siteName?: string;
+  buildingName?: string;
+  floorName?: string;
+  floorElevation?: number;
+}
+
+const generateIfcGuid = (): string => {
+  // Generate IFC-compatible GUID (22 character base64)
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
+  let result = '';
+  for (let i = 0; i < 22; i++) {
+    result += chars[Math.floor(Math.random() * 64)];
+  }
+  return result;
+};
+
+const formatIfcFloat = (n: number): string => n.toFixed(6);
+
+const formatIfcPoint = (x: number, y: number, z: number = 0): string => {
+  return `(${formatIfcFloat(x)},${formatIfcFloat(y)},${formatIfcFloat(z)})`;
+};
+
+export const exportToIfc = (options: IfcExportOptions): string => {
+  const {
+    sheet,
+    pixelsPerMeter,
+    useWorldCoordinates,
+    projectName = 'Visual Mapper Project',
+    siteName = 'Site',
+    buildingName = 'Building',
+    floorName = sheet.floor || 'Floor',
+    floorElevation = 0
+  } = options;
+
+  const coordRefs = sheet.coordRefs;
+  const shapes = sheet.shapes.filter(s => s.visible !== false);
+
+  // Coordinate transformation
+  const transformPoint = (p: Point): { x: number; y: number; z: number } => {
+    if (useWorldCoordinates && coordRefs.length === 2) {
+      const world = transformPointToWorld(p, coordRefs[0], coordRefs[1]);
+      return { x: world.x, y: world.y, z: world.z || floorElevation };
+    } else if (pixelsPerMeter) {
+      return {
+        x: p.x / pixelsPerMeter,
+        y: -p.y / pixelsPerMeter,
+        z: floorElevation
+      };
+    } else {
+      return { x: p.x / 1000, y: -p.y / 1000, z: floorElevation };
+    }
+  };
+
+  // Generate GUIDs for all entities
+  const projectGuid = generateIfcGuid();
+  const siteGuid = generateIfcGuid();
+  const buildingGuid = generateIfcGuid();
+  const storeyGuid = generateIfcGuid();
+  const ownerHistoryGuid = generateIfcGuid();
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const dateStr = new Date().toISOString().split('T')[0];
+
+  // Build IFC content
+  let entityId = 1;
+  const entities: string[] = [];
+
+  // Header section
+  const header = `ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('${sheet.title || 'export'}.ifc','${dateStr}',('Visual Mapper'),(''),'',' ','');
+FILE_SCHEMA(('IFC2X3'));
+ENDSEC;
+
+DATA;
+`;
+
+  // Add basic required entities
+  const personId = entityId++;
+  entities.push(`#${personId}=IFCPERSON($,$,'Visual Mapper',$,$,$,$,$);`);
+
+  const orgId = entityId++;
+  entities.push(`#${orgId}=IFCORGANIZATION($,'Visual Mapper','Visual Mapper Application',$,$);`);
+
+  const personOrgId = entityId++;
+  entities.push(`#${personOrgId}=IFCPERSONANDORGANIZATION(#${personId},#${orgId},$);`);
+
+  const appId = entityId++;
+  entities.push(`#${appId}=IFCAPPLICATION(#${orgId},'1.0','Visual Mapper','VisualMapper');`);
+
+  const ownerHistoryId = entityId++;
+  entities.push(`#${ownerHistoryId}=IFCOWNERHISTORY(#${personOrgId},#${appId},$,.NOCHANGE.,$,#${personOrgId},#${appId},${timestamp});`);
+
+  // Unit assignments
+  const lengthUnitId = entityId++;
+  entities.push(`#${lengthUnitId}=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);`);
+
+  const areaUnitId = entityId++;
+  entities.push(`#${areaUnitId}=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);`);
+
+  const volumeUnitId = entityId++;
+  entities.push(`#${volumeUnitId}=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);`);
+
+  const angleUnitId = entityId++;
+  entities.push(`#${angleUnitId}=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);`);
+
+  const unitAssignId = entityId++;
+  entities.push(`#${unitAssignId}=IFCUNITASSIGNMENT((#${lengthUnitId},#${areaUnitId},#${volumeUnitId},#${angleUnitId}));`);
+
+  // Geometric context
+  const originId = entityId++;
+  entities.push(`#${originId}=IFCCARTESIANPOINT((0.,0.,0.));`);
+
+  const dirZId = entityId++;
+  entities.push(`#${dirZId}=IFCDIRECTION((0.,0.,1.));`);
+
+  const dirXId = entityId++;
+  entities.push(`#${dirXId}=IFCDIRECTION((1.,0.,0.));`);
+
+  const axis2PlacementId = entityId++;
+  entities.push(`#${axis2PlacementId}=IFCAXIS2PLACEMENT3D(#${originId},#${dirZId},#${dirXId});`);
+
+  const geomContextId = entityId++;
+  entities.push(`#${geomContextId}=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#${axis2PlacementId},$);`);
+
+  const geomSubContextId = entityId++;
+  entities.push(`#${geomSubContextId}=IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,#${geomContextId},$,.MODEL_VIEW.,$);`);
+
+  // Project
+  const projectId = entityId++;
+  entities.push(`#${projectId}=IFCPROJECT('${projectGuid}',#${ownerHistoryId},'${projectName}',$,$,$,$,(#${geomContextId}),#${unitAssignId});`);
+
+  // Site placement
+  const sitePlacementId = entityId++;
+  entities.push(`#${sitePlacementId}=IFCLOCALPLACEMENT($,#${axis2PlacementId});`);
+
+  // Site
+  const siteId = entityId++;
+  entities.push(`#${siteId}=IFCSITE('${siteGuid}',#${ownerHistoryId},'${siteName}',$,$,#${sitePlacementId},$,$,.ELEMENT.,$,$,$,$,$);`);
+
+  // Building placement
+  const buildingPlacementId = entityId++;
+  entities.push(`#${buildingPlacementId}=IFCLOCALPLACEMENT(#${sitePlacementId},#${axis2PlacementId});`);
+
+  // Building
+  const buildingId = entityId++;
+  entities.push(`#${buildingId}=IFCBUILDING('${buildingGuid}',#${ownerHistoryId},'${buildingName}',$,$,#${buildingPlacementId},$,$,.ELEMENT.,$,$,$);`);
+
+  // Storey placement
+  const storeyOriginId = entityId++;
+  entities.push(`#${storeyOriginId}=IFCCARTESIANPOINT((0.,0.,${formatIfcFloat(floorElevation * 1000)}));`);
+
+  const storeyAxis2PlacementId = entityId++;
+  entities.push(`#${storeyAxis2PlacementId}=IFCAXIS2PLACEMENT3D(#${storeyOriginId},#${dirZId},#${dirXId});`);
+
+  const storeyPlacementId = entityId++;
+  entities.push(`#${storeyPlacementId}=IFCLOCALPLACEMENT(#${buildingPlacementId},#${storeyAxis2PlacementId});`);
+
+  // Building Storey
+  const storeyId = entityId++;
+  entities.push(`#${storeyId}=IFCBUILDINGSTOREY('${storeyGuid}',#${ownerHistoryId},'${floorName}',$,$,#${storeyPlacementId},$,$,.ELEMENT.,${formatIfcFloat(floorElevation * 1000)});`);
+
+  // Aggregation relationships
+  const relSiteId = entityId++;
+  entities.push(`#${relSiteId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${projectId},(#${siteId}));`);
+
+  const relBuildingId = entityId++;
+  entities.push(`#${relBuildingId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${siteId},(#${buildingId}));`);
+
+  const relStoreyId = entityId++;
+  entities.push(`#${relStoreyId}=IFCRELAGGREGATES('${generateIfcGuid()}',#${ownerHistoryId},$,$,#${buildingId},(#${storeyId}));`);
+
+  // Create spaces for each polygon/rectangle area
+  const spaceIds: number[] = [];
+
+  for (const shape of shapes) {
+    if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square') {
+      const spaceGuid = generateIfcGuid();
+      const spaceName = shape.label || `Space_${shape.id}`;
+
+      // Transform points to meters (IFC uses mm internally but we'll use the meter values)
+      const points = shape.points.map(transformPoint);
+
+      // Calculate area
+      let areaSqM = 0;
+      if (pixelsPerMeter) {
+        const areaPx = getPolygonArea(shape.points);
+        areaSqM = areaPx / (pixelsPerMeter * pixelsPerMeter);
+      }
+
+      // Create polyline for the space boundary
+      const polylinePointIds: number[] = [];
+      for (const pt of points) {
+        const ptId = entityId++;
+        entities.push(`#${ptId}=IFCCARTESIANPOINT((${formatIfcFloat(pt.x * 1000)},${formatIfcFloat(pt.y * 1000)}));`);
+        polylinePointIds.push(ptId);
+      }
+      // Close the polyline
+      polylinePointIds.push(polylinePointIds[0]);
+
+      const polylineId = entityId++;
+      entities.push(`#${polylineId}=IFCPOLYLINE((${polylinePointIds.map(id => '#' + id).join(',')}));`);
+
+      // Create arbitrary closed profile
+      const profileId = entityId++;
+      entities.push(`#${profileId}=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#${polylineId});`);
+
+      // Extrude direction (up)
+      const extrudeDirId = entityId++;
+      entities.push(`#${extrudeDirId}=IFCDIRECTION((0.,0.,1.));`);
+
+      // Create extruded area solid (height = 100mm for visualization)
+      const solidId = entityId++;
+      entities.push(`#${solidId}=IFCEXTRUDEDAREASOLID(#${profileId},#${axis2PlacementId},#${extrudeDirId},100.);`);
+
+      // Shape representation
+      const shapeRepId = entityId++;
+      entities.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${geomSubContextId},'Body','SweptSolid',(#${solidId}));`);
+
+      const prodDefShapeId = entityId++;
+      entities.push(`#${prodDefShapeId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${shapeRepId}));`);
+
+      // Space placement
+      const spacePlacementId = entityId++;
+      entities.push(`#${spacePlacementId}=IFCLOCALPLACEMENT(#${storeyPlacementId},#${axis2PlacementId});`);
+
+      // Create space
+      const spaceId = entityId++;
+      entities.push(`#${spaceId}=IFCSPACE('${spaceGuid}',#${ownerHistoryId},'${spaceName}',$,$,#${spacePlacementId},#${prodDefShapeId},$,.ELEMENT.,.INTERNAL.,$);`);
+      spaceIds.push(spaceId);
+
+      // Add area quantity if calibrated
+      if (areaSqM > 0) {
+        const areaQtyId = entityId++;
+        entities.push(`#${areaQtyId}=IFCQUANTITYAREA('GrossFloorArea',$,$,${formatIfcFloat(areaSqM)},$);`);
+
+        const qtySetId = entityId++;
+        entities.push(`#${qtySetId}=IFCELEMENTQUANTITY('${generateIfcGuid()}',#${ownerHistoryId},'BaseQuantities',$,$,(#${areaQtyId}));`);
+
+        const relQtyId = entityId++;
+        entities.push(`#${relQtyId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${qtySetId});`);
+      }
+
+      // Add color property
+      const colorPropId = entityId++;
+      entities.push(`#${colorPropId}=IFCPROPERTYSINGLEVALUE('Color',$,IFCTEXT('${shape.color}'),$);`);
+
+      const labelPropId = entityId++;
+      entities.push(`#${labelPropId}=IFCPROPERTYSINGLEVALUE('Label',$,IFCTEXT('${shape.label || ''}'),$);`);
+
+      const propSetId = entityId++;
+      entities.push(`#${propSetId}=IFCPROPERTYSET('${generateIfcGuid()}',#${ownerHistoryId},'VisualMapper_Properties',$,(#${colorPropId},#${labelPropId}));`);
+
+      const relPropId = entityId++;
+      entities.push(`#${relPropId}=IFCRELDEFINESBYPROPERTIES('${generateIfcGuid()}',#${ownerHistoryId},$,$,(#${spaceId}),#${propSetId});`);
+    }
+  }
+
+  // Relate spaces to storey
+  if (spaceIds.length > 0) {
+    const relSpacesId = entityId++;
+    entities.push(`#${relSpacesId}=IFCRELCONTAINEDINSPATIALSTRUCTURE('${generateIfcGuid()}',#${ownerHistoryId},$,$,(${spaceIds.map(id => '#' + id).join(',')}),#${storeyId});`);
+  }
+
+  // Footer
+  const footer = `ENDSEC;
+END-ISO-10303-21;
+`;
+
+  return header + entities.join('\n') + '\n' + footer;
 };

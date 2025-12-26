@@ -5,7 +5,7 @@ import { getPolygonLabelStats, constrainPoint, getDistance, getAlignmentGuides, 
 import { COLORS, HANDLE_RADIUS, SNAP_THRESHOLD } from '../constants';
 import { ContextMenu } from './ContextMenu';
 import { Crop, HelpCircle } from 'lucide-react';
-import { getIconComponent } from '../utils/icons';
+import { getIconByName } from './IconPickerModal';
 
 interface CanvasProps {
   image: HTMLImageElement | null;
@@ -568,12 +568,46 @@ const Canvas: React.FC<CanvasProps> = ({
         }
         else if (dragState.mode === 'draw_circle' && dragState.shapeId) { const center = { x: dragState.startX, y: dragState.startY }; onShapeUpdate(dragState.shapeId, { points: [center, worldPos] }); }
         else if (dragState.mode === 'draw_triangle' && dragState.shapeId) { const center = { x: dragState.startX, y: dragState.startY }; const dx = worldPos.x - center.x; const dy = worldPos.y - center.y; const p1 = { x: center.x, y: center.y - Math.abs(dy) }; const p2 = { x: center.x - Math.abs(dx), y: center.y + Math.abs(dy) }; const p3 = { x: center.x + Math.abs(dx), y: center.y + Math.abs(dy) }; onShapeUpdate(dragState.shapeId, { points: [p1, p2, p3] }); }
-        else if (dragState.mode === 'draw_rect') { 
-            const start = { x: dragState.startX, y: dragState.startY }; const current = worldPos; const minX = Math.min(start.x, current.x); const maxX = Math.max(start.x, current.x); const minY = Math.min(start.y, current.y); const maxY = Math.max(start.y, current.y); const newPoints = [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: maxX, y: maxY }, { x: minX, y: maxY }]; onShapeUpdate(dragState.shapeId!, { points: newPoints }); 
+        else if (dragState.mode === 'draw_rect') {
+            const start = { x: dragState.startX, y: dragState.startY };
+            let current = worldPos;
+
+            // Snap corners to existing shape edges/vertices
+            const otherShapes = shapes.filter(s => s.id !== dragState.shapeId);
+            const snapPoint = getClosestSnapPoint(current, otherShapes, SNAP_THRESHOLD / scale, gridConfig, pixelsPerMeter);
+            if (snapPoint) {
+                current = snapPoint;
+                setSnapIndicator(snapPoint);
+            } else {
+                setSnapIndicator(null);
+            }
+
+            const minX = Math.min(start.x, current.x);
+            const maxX = Math.max(start.x, current.x);
+            const minY = Math.min(start.y, current.y);
+            const maxY = Math.max(start.y, current.y);
+            const newPoints = [
+                { x: minX, y: minY },
+                { x: maxX, y: minY },
+                { x: maxX, y: maxY },
+                { x: minX, y: maxY }
+            ];
+            onShapeUpdate(dragState.shapeId!, { points: newPoints });
         }
         else if (dragState.mode === 'draw_square') {
             const start = { x: dragState.startX, y: dragState.startY };
-            const current = worldPos;
+            let current = worldPos;
+
+            // Snap to existing shapes
+            const otherShapes = shapes.filter(s => s.id !== dragState.shapeId);
+            const snapPoint = getClosestSnapPoint(current, otherShapes, SNAP_THRESHOLD / scale, gridConfig, pixelsPerMeter);
+            if (snapPoint) {
+                current = snapPoint;
+                setSnapIndicator(snapPoint);
+            } else {
+                setSnapIndicator(null);
+            }
+
             const w = current.x - start.x;
             const h = current.y - start.y;
             let sideX = w;
@@ -622,31 +656,78 @@ const Canvas: React.FC<CanvasProps> = ({
     } else { if (alignmentGuides.length > 0) setAlignmentGuides([]); }
   };
 
+  // Minimum size for areas (in pixels)
+  const MIN_AREA_SIZE = 20;
+
   const handleMouseUp = (e: React.MouseEvent) => {
       if (dragState.isDragging) {
-          if (dragState.mode === 'draw_calibrate' && measurePoints) {
+          // Validate minimum size for rectangle/square shapes
+          if ((dragState.mode === 'draw_rect' || dragState.mode === 'draw_square') && dragState.shapeId) {
+               const shape = shapes.find(s => s.id === dragState.shapeId);
+               if (shape) {
+                   const bbox = getBoundingBox(shape.points);
+                   if (bbox.width < MIN_AREA_SIZE || bbox.height < MIN_AREA_SIZE) {
+                       // Too small - delete the shape
+                       onShapeDelete([dragState.shapeId]);
+                       onShowAlert?.('warning', 'Ala liiga väike', 'Joonista suurem ala! Minimaalne suurus on 20x20 pikslit.');
+                   } else {
+                       // Check for overlap if prevention is enabled
+                       if (preventOverlap) {
+                           const otherShapes = shapes.filter(s => s.id !== dragState.shapeId && (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square'));
+                           const hasCollision = otherShapes.some(s => doPolygonsIntersect(shape.points, s.points));
+                           if (hasCollision) {
+                               onShapeDelete([dragState.shapeId]);
+                               onShowAlert?.('warning', 'Alad kattuvad', 'Kujundid ei tohi kattuda! Joonista ala teisele kohale.');
+                           }
+                       }
+                   }
+               }
+          }
+          // Validate minimum size for triangles and circles
+          else if ((dragState.mode === 'draw_triangle' || dragState.mode === 'draw_circle') && dragState.shapeId) {
+               const shape = shapes.find(s => s.id === dragState.shapeId);
+               if (shape) {
+                   const bbox = getBoundingBox(shape.points);
+                   if (bbox.width < MIN_AREA_SIZE && bbox.height < MIN_AREA_SIZE) {
+                       onShapeDelete([dragState.shapeId]);
+                       onShowAlert?.('warning', 'Kujund liiga väike', 'Joonista suurem kujund!');
+                   }
+               }
+          }
+          else if (dragState.mode === 'draw_calibrate' && measurePoints) {
                const dist = getDistance(measurePoints[0], measurePoints[1]);
-               onMeasure(dist);
+               if (dist < 10) {
+                   onShowAlert?.('warning', 'Liiga lühike', 'Joonista pikem kalibreerimise joon!');
+               } else {
+                   onMeasure(dist);
+               }
           } else if (dragState.mode === 'draw_crop' && cropRect && cropRect.w > 10 && cropRect.h > 10) {
                onApplyCrop(cropRect);
           } else if (dragState.mode === 'draw_measure_line' && arrowPreview) {
-               const id = Date.now().toString();
                const dist = getDistance(arrowPreview[0], arrowPreview[1]);
-               const newShape: Shape = {
-                   id, type: 'line', points: arrowPreview, 
-                   color: '#2563eb', label: '', areaNumber: 0,
-                   strokeWidth: 2, opacity: 1, 
-                   measureUnit: 'm', measureDecimals: 2
-               };
-               onShapeAdd(newShape);
+               if (dist < 5) {
+                   onShowAlert?.('info', 'Liiga lühike', 'Mõõtmiseks joonista pikem joon.');
+               } else {
+                   const id = Date.now().toString();
+                   const newShape: Shape = {
+                       id, type: 'line', points: arrowPreview,
+                       color: '#2563eb', label: '', areaNumber: 0,
+                       strokeWidth: 2, opacity: 1,
+                       measureUnit: 'm', measureDecimals: 2
+                   };
+                   onShapeAdd(newShape);
+               }
           } else if (dragState.mode === 'draw_arrow' && arrowPreview) {
-               const id = Date.now().toString();
-               const newShape: Shape = {
-                   id, type: 'arrow', points: arrowPreview, 
-                   color: '#ef4444', label: '', areaNumber: 0,
-                   strokeWidth: 4, opacity: 1, arrowStyle: 'straight'
-               };
-               onShapeAdd(newShape);
+               const dist = getDistance(arrowPreview[0], arrowPreview[1]);
+               if (dist >= 5) {
+                   const id = Date.now().toString();
+                   const newShape: Shape = {
+                       id, type: 'arrow', points: arrowPreview,
+                       color: '#ef4444', label: '', areaNumber: 0,
+                       strokeWidth: 4, opacity: 1, arrowStyle: 'straight'
+                   };
+                   onShapeAdd(newShape);
+               }
           } else if (dragState.mode === 'draw_axis' && axisPreview) {
                const id = Date.now().toString();
                const newShape: Shape = {
@@ -832,7 +913,8 @@ const Canvas: React.FC<CanvasProps> = ({
                          </g>
                      );
                  } else if (shape.type === 'icon' && shape.iconName) {
-                     const Icon = getIconComponent(shape.iconName);
+                     const Icon = getIconByName(shape.iconName);
+                     if (!Icon) return null;
                      const size = (shape.fontSize || 32) / scale;
                      return (
                          <foreignObject key={shape.id} x={shape.points[0].x - size/2} y={shape.points[0].y - size/2} width={size} height={size} className="pointer-events-none">
@@ -923,7 +1005,110 @@ const Canvas: React.FC<CanvasProps> = ({
                     ))}
                  </>
              )}
-             
+
+             {/* Calibration Line Preview */}
+             {measurePoints && (
+                 <g>
+                    {/* Main line */}
+                    <line
+                        x1={measurePoints[0].x}
+                        y1={measurePoints[0].y}
+                        x2={measurePoints[1].x}
+                        y2={measurePoints[1].y}
+                        stroke="#dc2626"
+                        strokeWidth={3 / scale}
+                        strokeDasharray={`${8/scale},${4/scale}`}
+                    />
+                    {/* Start point */}
+                    <circle cx={measurePoints[0].x} cy={measurePoints[0].y} r={8/scale} fill="#dc2626" stroke="white" strokeWidth={2/scale} />
+                    <text x={measurePoints[0].x} y={measurePoints[0].y - 15/scale} textAnchor="middle" fontSize={12/scale} fill="#dc2626" fontWeight="bold">ALGUS</text>
+                    {/* End point */}
+                    <circle cx={measurePoints[1].x} cy={measurePoints[1].y} r={8/scale} fill="#16a34a" stroke="white" strokeWidth={2/scale} />
+                    <text x={measurePoints[1].x} y={measurePoints[1].y - 15/scale} textAnchor="middle" fontSize={12/scale} fill="#16a34a" fontWeight="bold">LÕPP</text>
+                    {/* Distance label */}
+                    {(() => {
+                        const midX = (measurePoints[0].x + measurePoints[1].x) / 2;
+                        const midY = (measurePoints[0].y + measurePoints[1].y) / 2;
+                        const distPx = getDistance(measurePoints[0], measurePoints[1]);
+                        return (
+                            <g>
+                                <rect x={midX - 60/scale} y={midY - 12/scale} width={120/scale} height={24/scale} rx={4/scale} fill="#dc2626" />
+                                <text x={midX} y={midY + 4/scale} textAnchor="middle" fontSize={14/scale} fill="white" fontWeight="bold">
+                                    {distPx.toFixed(0)} px
+                                </text>
+                            </g>
+                        );
+                    })()}
+                    {/* Perpendicular end markers */}
+                    {(() => {
+                        const angle = Math.atan2(measurePoints[1].y - measurePoints[0].y, measurePoints[1].x - measurePoints[0].x);
+                        const perpAngle = angle + Math.PI / 2;
+                        const markerLen = 15 / scale;
+                        return (
+                            <>
+                                <line
+                                    x1={measurePoints[0].x + Math.cos(perpAngle) * markerLen}
+                                    y1={measurePoints[0].y + Math.sin(perpAngle) * markerLen}
+                                    x2={measurePoints[0].x - Math.cos(perpAngle) * markerLen}
+                                    y2={measurePoints[0].y - Math.sin(perpAngle) * markerLen}
+                                    stroke="#dc2626" strokeWidth={3/scale}
+                                />
+                                <line
+                                    x1={measurePoints[1].x + Math.cos(perpAngle) * markerLen}
+                                    y1={measurePoints[1].y + Math.sin(perpAngle) * markerLen}
+                                    x2={measurePoints[1].x - Math.cos(perpAngle) * markerLen}
+                                    y2={measurePoints[1].y - Math.sin(perpAngle) * markerLen}
+                                    stroke="#16a34a" strokeWidth={3/scale}
+                                />
+                            </>
+                        );
+                    })()}
+                 </g>
+             )}
+
+             {/* Arrow/Measurement Line Preview */}
+             {arrowPreview && (dragState.mode === 'draw_arrow' || dragState.mode === 'draw_measure_line') && (
+                 <g>
+                    {/* Main line */}
+                    <line
+                        x1={arrowPreview[0].x}
+                        y1={arrowPreview[0].y}
+                        x2={arrowPreview[1].x}
+                        y2={arrowPreview[1].y}
+                        stroke={dragState.mode === 'draw_measure_line' ? '#2563eb' : '#ef4444'}
+                        strokeWidth={3 / scale}
+                    />
+                    {/* Arrow head for arrow tool */}
+                    {dragState.mode === 'draw_arrow' && (() => {
+                        const headPoints = getArrowHeadPoints(arrowPreview[0], arrowPreview[1], 20/scale);
+                        return (
+                            <polygon
+                                points={headPoints.map(p => `${p.x},${p.y}`).join(' ')}
+                                fill="#ef4444"
+                            />
+                        );
+                    })()}
+                    {/* Measurement display for measure_line */}
+                    {dragState.mode === 'draw_measure_line' && pixelsPerMeter && (() => {
+                        const midX = (arrowPreview[0].x + arrowPreview[1].x) / 2;
+                        const midY = (arrowPreview[0].y + arrowPreview[1].y) / 2;
+                        const distPx = getDistance(arrowPreview[0], arrowPreview[1]);
+                        const distM = distPx / pixelsPerMeter;
+                        return (
+                            <g>
+                                <rect x={midX - 50/scale} y={midY - 30/scale} width={100/scale} height={24/scale} rx={4/scale} fill="#2563eb" />
+                                <text x={midX} y={midY - 14/scale} textAnchor="middle" fontSize={14/scale} fill="white" fontWeight="bold">
+                                    {distM < 1 ? `${(distM * 1000).toFixed(0)} mm` : `${distM.toFixed(2)} m`}
+                                </text>
+                                {/* Start/end markers */}
+                                <circle cx={arrowPreview[0].x} cy={arrowPreview[0].y} r={6/scale} fill="#2563eb" stroke="white" strokeWidth={2/scale} />
+                                <circle cx={arrowPreview[1].x} cy={arrowPreview[1].y} r={6/scale} fill="#2563eb" stroke="white" strokeWidth={2/scale} />
+                            </g>
+                        );
+                    })()}
+                 </g>
+             )}
+
              {/* Handles for selected */}
              {selectedIds.map(id => {
                  const s = shapes.find(sh => sh.id === id);
