@@ -1,0 +1,841 @@
+
+import { jsPDF } from 'jspdf';
+import { Shape, Point, Sheet, CoordinateReference, PageConfig } from '../types';
+import { getPolygonArea, getPolygonPerimeter, getDistance, getCentroid, transformPointToWorld, getAxisSystemPoints, getMidpoint, getArrowHeadPoints } from './geometry';
+
+// ============================================
+// PDF EXPORT
+// ============================================
+
+export interface PdfExportOptions {
+  sheet: Sheet;
+  image: HTMLImageElement | null;
+  pixelsPerMeter: number | null;
+  pageConfig: PageConfig;
+  includeHeader?: boolean;
+  includeFooter?: boolean;
+}
+
+export const exportToPdf = async (options: PdfExportOptions): Promise<Blob> => {
+  const { sheet, image, pixelsPerMeter, pageConfig } = options;
+
+  if (!image) {
+    throw new Error('Pilti pole laaditud');
+  }
+
+  const imgWidth = image.naturalWidth;
+  const imgHeight = image.naturalHeight;
+
+  // Determine page orientation based on image aspect ratio
+  const isLandscape = imgWidth > imgHeight;
+
+  // Create PDF with appropriate orientation
+  const pdf = new jsPDF({
+    orientation: isLandscape ? 'landscape' : 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+
+  // Calculate margins and available space
+  const margin = 10;
+  const headerSpace = options.includeHeader ? pageConfig.headerHeight / 10 : 0;
+  const footerSpace = options.includeFooter ? pageConfig.footerHeight / 10 : 0;
+
+  const availableWidth = pageWidth - 2 * margin;
+  const availableHeight = pageHeight - 2 * margin - headerSpace - footerSpace;
+
+  // Calculate scale to fit image
+  const scaleX = availableWidth / imgWidth;
+  const scaleY = availableHeight / imgHeight;
+  const scale = Math.min(scaleX, scaleY);
+
+  const pdfImgWidth = imgWidth * scale;
+  const pdfImgHeight = imgHeight * scale;
+
+  // Center the image
+  const offsetX = margin + (availableWidth - pdfImgWidth) / 2;
+  const offsetY = margin + headerSpace + (availableHeight - pdfImgHeight) / 2;
+
+  // Add header if requested
+  if (options.includeHeader) {
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(sheet.title || 'Projekt', margin, margin + 5);
+
+    if (sheet.floor) {
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(sheet.floor, margin, margin + 10);
+    }
+
+    // Add date
+    pdf.setFontSize(8);
+    pdf.text(new Date().toLocaleDateString('et-EE'), pageWidth - margin - 20, margin + 5);
+  }
+
+  // Add background image
+  pdf.addImage(image.src, 'PNG', offsetX, offsetY, pdfImgWidth, pdfImgHeight);
+
+  // Convert pixel coordinates to PDF coordinates
+  const toPdfCoord = (p: Point): { x: number; y: number } => ({
+    x: offsetX + p.x * scale,
+    y: offsetY + p.y * scale
+  });
+
+  // Draw shapes
+  for (const shape of sheet.shapes) {
+    if (shape.visible === false) continue;
+
+    // Set color
+    const hexColor = shape.color || '#000000';
+    const r = parseInt(hexColor.slice(1, 3), 16);
+    const g = parseInt(hexColor.slice(3, 5), 16);
+    const b = parseInt(hexColor.slice(5, 7), 16);
+
+    pdf.setDrawColor(r, g, b);
+    pdf.setFillColor(r, g, b);
+
+    if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square' || shape.type === 'triangle') {
+      const pdfPoints = shape.points.map(toPdfCoord);
+
+      // Draw polygon
+      pdf.setLineWidth((shape.strokeWidth || 2) * scale * 0.3);
+
+      // Fill with transparency
+      const opacity = shape.opacity || 0.4;
+      pdf.setGState(pdf.GState({ opacity }));
+
+      // Draw filled polygon using lines method
+      if (pdfPoints.length >= 3) {
+        pdf.setFillColor(r, g, b);
+
+        // Convert points to relative movements for jsPDF lines method
+        const startX = pdfPoints[0].x;
+        const startY = pdfPoints[0].y;
+        const lineSegments: [number, number][] = [];
+
+        for (let i = 1; i < pdfPoints.length; i++) {
+          lineSegments.push([
+            pdfPoints[i].x - pdfPoints[i - 1].x,
+            pdfPoints[i].y - pdfPoints[i - 1].y
+          ]);
+        }
+        // Close the polygon
+        lineSegments.push([
+          pdfPoints[0].x - pdfPoints[pdfPoints.length - 1].x,
+          pdfPoints[0].y - pdfPoints[pdfPoints.length - 1].y
+        ]);
+
+        // Draw using lines method: lines(lines, x, y, [scale], [style], [closed])
+        pdf.lines(lineSegments, startX, startY, [1, 1], 'FD', true);
+      }
+
+      pdf.setGState(pdf.GState({ opacity: 1 }));
+
+      // Add label
+      if (shape.label) {
+        const centroid = getCentroid(shape.points);
+        const pdfCentroid = toPdfCoord(centroid);
+
+        pdf.setTextColor(shape.textColor || '#000000');
+        pdf.setFontSize(Math.max(6, 12 * scale * pageConfig.fontSizeScale));
+        pdf.setFont('helvetica', shape.fontWeight === 'bold' ? 'bold' : 'normal');
+
+        // Add text background if boxed style
+        if (shape.textStyle === 'boxed') {
+          const textWidth = pdf.getTextWidth(shape.label);
+          const textHeight = 4;
+          pdf.setFillColor(255, 255, 255);
+          pdf.rect(pdfCentroid.x - textWidth / 2 - 1, pdfCentroid.y - textHeight / 2 - 1, textWidth + 2, textHeight + 2, 'F');
+        }
+
+        pdf.text(shape.label, pdfCentroid.x, pdfCentroid.y, { align: 'center', baseline: 'middle' });
+
+        // Add area measurement
+        if (shape.showArea && pixelsPerMeter) {
+          const areaPx = getPolygonArea(shape.points);
+          const areaM2 = areaPx / (pixelsPerMeter * pixelsPerMeter);
+          pdf.setFontSize(8 * scale * pageConfig.fontSizeScale);
+          pdf.text(`${areaM2.toFixed(1)} m²`, pdfCentroid.x, pdfCentroid.y + 4, { align: 'center' });
+        }
+      }
+    } else if (shape.type === 'line' || shape.type === 'arrow') {
+      const [start, end] = shape.points.map(toPdfCoord);
+      pdf.setLineWidth((shape.strokeWidth || 2) * scale * 0.3);
+      pdf.line(start.x, start.y, end.x, end.y);
+
+      // Add arrow head if arrow type
+      if (shape.type === 'arrow') {
+        const headSize = (shape.strokeWidth || 4) * 3 * scale;
+        const angle = Math.atan2(end.y - start.y, end.x - start.x);
+
+        const p1 = {
+          x: end.x - headSize * Math.cos(angle - Math.PI / 6),
+          y: end.y - headSize * Math.sin(angle - Math.PI / 6)
+        };
+        const p2 = {
+          x: end.x - headSize * Math.cos(angle + Math.PI / 6),
+          y: end.y - headSize * Math.sin(angle + Math.PI / 6)
+        };
+
+        pdf.triangle(end.x, end.y, p1.x, p1.y, p2.x, p2.y, 'F');
+      }
+
+      // Add measurement label for lines
+      if (shape.type === 'line' && pixelsPerMeter) {
+        const mid = getMidpoint(shape.points[0], shape.points[1]);
+        const pdfMid = toPdfCoord(mid);
+        const dist = getDistance(shape.points[0], shape.points[1]) / pixelsPerMeter;
+
+        pdf.setFontSize(8 * scale);
+        pdf.setFillColor(r, g, b);
+        pdf.roundedRect(pdfMid.x - 8, pdfMid.y - 3, 16, 6, 1, 1, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.text(`${dist.toFixed(2)} m`, pdfMid.x, pdfMid.y, { align: 'center', baseline: 'middle' });
+      }
+    } else if (shape.type === 'circle') {
+      const center = toPdfCoord(shape.points[0]);
+      const edgePoint = toPdfCoord(shape.points[1]);
+      const radius = Math.sqrt(Math.pow(edgePoint.x - center.x, 2) + Math.pow(edgePoint.y - center.y, 2));
+
+      pdf.setLineWidth((shape.strokeWidth || 2) * scale * 0.3);
+      pdf.setGState(pdf.GState({ opacity: shape.opacity || 0.5 }));
+      pdf.circle(center.x, center.y, radius, 'FD');
+      pdf.setGState(pdf.GState({ opacity: 1 }));
+    } else if (shape.type === 'text') {
+      const pos = toPdfCoord(shape.points[0]);
+      pdf.setFontSize((shape.fontSize || 24) * scale * 0.3);
+      pdf.setTextColor(r, g, b);
+      pdf.text(shape.label, pos.x, pos.y, { align: 'center' });
+    } else if (shape.type === 'bullet') {
+      const pos = toPdfCoord(shape.points[0]);
+      const size = (shape.fontSize || 24) * scale * 0.3;
+
+      pdf.circle(pos.x, pos.y, size / 2, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(size * 0.6);
+      pdf.text(shape.bulletLabel || '', pos.x, pos.y, { align: 'center', baseline: 'middle' });
+    } else if (shape.type === 'axis' && shape.axisConfig) {
+      const { lines, labels } = getAxisSystemPoints(shape.points[0], shape.points[1], shape.axisConfig, pixelsPerMeter);
+
+      pdf.setLineWidth(0.3 * scale);
+      pdf.setLineDashPattern([2, 2], 0);
+
+      for (const [p1, p2] of lines) {
+        const pdfP1 = toPdfCoord(p1);
+        const pdfP2 = toPdfCoord(p2);
+        pdf.line(pdfP1.x, pdfP1.y, pdfP2.x, pdfP2.y);
+      }
+
+      pdf.setLineDashPattern([], 0);
+
+      for (const label of labels) {
+        const pdfPos = toPdfCoord(label.pos);
+        pdf.setFillColor(255, 255, 255);
+        pdf.circle(pdfPos.x, pdfPos.y, 3 * scale, 'FD');
+        pdf.setTextColor(r, g, b);
+        pdf.setFontSize(6 * scale);
+        pdf.text(label.text, pdfPos.x, pdfPos.y, { align: 'center', baseline: 'middle' });
+      }
+    }
+  }
+
+  // Add footer if requested
+  if (options.includeFooter) {
+    pdf.setDrawColor(200, 200, 200);
+    pdf.line(margin, pageHeight - margin - footerSpace, pageWidth - margin, pageHeight - margin - footerSpace);
+
+    pdf.setFontSize(8);
+    pdf.setTextColor(100, 100, 100);
+    pdf.text(`Leht: ${sheet.name}`, margin, pageHeight - margin);
+
+    if (pixelsPerMeter) {
+      pdf.text(`Mõõtkava: 1px = ${(1000/pixelsPerMeter).toFixed(2)}mm`, pageWidth / 2, pageHeight - margin, { align: 'center' });
+    }
+
+    pdf.text(`Loodud: Visual Mapper`, pageWidth - margin, pageHeight - margin, { align: 'right' });
+  }
+
+  return pdf.output('blob');
+};
+
+
+// ============================================
+// DXF EXPORT (for Trimble Connect)
+// ============================================
+
+export interface DxfExportOptions {
+  sheet: Sheet;
+  pixelsPerMeter: number | null;
+  useWorldCoordinates: boolean;
+  includeLabels: boolean;
+  includeMeasurements: boolean;
+  layerPrefix?: string;
+}
+
+const formatDxfNumber = (n: number): string => {
+  return n.toFixed(6);
+};
+
+const dxfHeader = (minX: number, minY: number, maxX: number, maxY: number): string => {
+  return `0
+SECTION
+2
+HEADER
+9
+$ACADVER
+1
+AC1015
+9
+$INSBASE
+10
+0.0
+20
+0.0
+30
+0.0
+9
+$EXTMIN
+10
+${formatDxfNumber(minX)}
+20
+${formatDxfNumber(minY)}
+30
+0.0
+9
+$EXTMAX
+10
+${formatDxfNumber(maxX)}
+20
+${formatDxfNumber(maxY)}
+30
+0.0
+0
+ENDSEC
+`;
+};
+
+const dxfTables = (layers: string[]): string => {
+  let result = `0
+SECTION
+2
+TABLES
+0
+TABLE
+2
+LAYER
+70
+${layers.length}
+`;
+
+  const colors: Record<string, number> = {
+    'AREAS': 1,      // Red
+    'LINES': 3,      // Green
+    'AXES': 5,       // Blue
+    'LABELS': 7,     // White
+    'DIMENSIONS': 4, // Cyan
+    'DEFAULT': 7
+  };
+
+  for (const layer of layers) {
+    const color = colors[layer] || 7;
+    result += `0
+LAYER
+2
+${layer}
+70
+0
+62
+${color}
+6
+CONTINUOUS
+`;
+  }
+
+  result += `0
+ENDTAB
+0
+ENDSEC
+`;
+
+  return result;
+};
+
+const dxfEntitiesStart = (): string => {
+  return `0
+SECTION
+2
+ENTITIES
+`;
+};
+
+const dxfEntitiesEnd = (): string => {
+  return `0
+ENDSEC
+0
+EOF
+`;
+};
+
+const dxfPolyline = (points: { x: number; y: number; z?: number }[], layer: string, closed: boolean = true): string => {
+  let result = `0
+LWPOLYLINE
+8
+${layer}
+90
+${points.length}
+70
+${closed ? 1 : 0}
+`;
+
+  for (const p of points) {
+    result += `10
+${formatDxfNumber(p.x)}
+20
+${formatDxfNumber(p.y)}
+`;
+  }
+
+  return result;
+};
+
+const dxfLine = (p1: { x: number; y: number }, p2: { x: number; y: number }, layer: string): string => {
+  return `0
+LINE
+8
+${layer}
+10
+${formatDxfNumber(p1.x)}
+20
+${formatDxfNumber(p1.y)}
+30
+0.0
+11
+${formatDxfNumber(p2.x)}
+21
+${formatDxfNumber(p2.y)}
+31
+0.0
+`;
+};
+
+const dxfCircle = (center: { x: number; y: number }, radius: number, layer: string): string => {
+  return `0
+CIRCLE
+8
+${layer}
+10
+${formatDxfNumber(center.x)}
+20
+${formatDxfNumber(center.y)}
+30
+0.0
+40
+${formatDxfNumber(radius)}
+`;
+};
+
+const dxfText = (pos: { x: number; y: number }, text: string, height: number, layer: string): string => {
+  return `0
+TEXT
+8
+${layer}
+10
+${formatDxfNumber(pos.x)}
+20
+${formatDxfNumber(pos.y)}
+30
+0.0
+40
+${formatDxfNumber(height)}
+1
+${text}
+72
+1
+73
+2
+11
+${formatDxfNumber(pos.x)}
+21
+${formatDxfNumber(pos.y)}
+31
+0.0
+`;
+};
+
+const dxfMText = (pos: { x: number; y: number }, text: string, height: number, layer: string): string => {
+  return `0
+MTEXT
+8
+${layer}
+10
+${formatDxfNumber(pos.x)}
+20
+${formatDxfNumber(pos.y)}
+30
+0.0
+40
+${formatDxfNumber(height)}
+71
+1
+72
+1
+1
+${text}
+`;
+};
+
+export const exportToDxf = (options: DxfExportOptions): string => {
+  const { sheet, pixelsPerMeter, useWorldCoordinates, includeLabels, includeMeasurements, layerPrefix = '' } = options;
+
+  const shapes = sheet.shapes.filter(s => s.visible !== false);
+  const coordRefs = sheet.coordRefs;
+
+  // Coordinate transformation function
+  const transformPoint = (p: Point): { x: number; y: number; z: number } => {
+    if (useWorldCoordinates && coordRefs.length === 2) {
+      const world = transformPointToWorld(p, coordRefs[0], coordRefs[1]);
+      return { x: world.x, y: world.y, z: world.z || 0 };
+    } else if (pixelsPerMeter) {
+      // Convert pixels to meters (standard coordinate system)
+      return {
+        x: p.x / pixelsPerMeter,
+        y: -p.y / pixelsPerMeter, // Flip Y for CAD coordinate system
+        z: 0
+      };
+    } else {
+      // Use pixels as-is but flip Y
+      return { x: p.x, y: -p.y, z: 0 };
+    }
+  };
+
+  // Collect all points for bounding box
+  let allPoints: { x: number; y: number }[] = [];
+  for (const shape of shapes) {
+    for (const p of shape.points) {
+      const tp = transformPoint(p);
+      allPoints.push({ x: tp.x, y: tp.y });
+    }
+  }
+
+  if (allPoints.length === 0) {
+    allPoints = [{ x: 0, y: 0 }, { x: 100, y: 100 }];
+  }
+
+  const minX = Math.min(...allPoints.map(p => p.x)) - 10;
+  const minY = Math.min(...allPoints.map(p => p.y)) - 10;
+  const maxX = Math.max(...allPoints.map(p => p.x)) + 10;
+  const maxY = Math.max(...allPoints.map(p => p.y)) + 10;
+
+  // Define layers
+  const layers = [
+    `${layerPrefix}AREAS`,
+    `${layerPrefix}LINES`,
+    `${layerPrefix}AXES`,
+    `${layerPrefix}LABELS`,
+    `${layerPrefix}DIMENSIONS`
+  ];
+
+  // Build DXF content
+  let dxf = dxfHeader(minX, minY, maxX, maxY);
+  dxf += dxfTables(layers);
+  dxf += dxfEntitiesStart();
+
+  // Process shapes
+  for (const shape of shapes) {
+    const layer = `${layerPrefix}${getShapeLayer(shape.type)}`;
+
+    if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square' || shape.type === 'triangle') {
+      const points = shape.points.map(transformPoint);
+      dxf += dxfPolyline(points, layer, true);
+
+      // Add label
+      if (includeLabels && shape.label) {
+        const centroid = getCentroid(shape.points);
+        const tc = transformPoint(centroid);
+        const textHeight = pixelsPerMeter ? 0.3 : 20;
+        dxf += dxfText(tc, shape.label, textHeight, `${layerPrefix}LABELS`);
+      }
+
+      // Add measurements
+      if (includeMeasurements && pixelsPerMeter) {
+        const centroid = getCentroid(shape.points);
+        const tc = transformPoint(centroid);
+
+        if (shape.showArea) {
+          const areaPx = getPolygonArea(shape.points);
+          const areaM2 = areaPx / (pixelsPerMeter * pixelsPerMeter);
+          const textHeight = pixelsPerMeter ? 0.2 : 15;
+          dxf += dxfText({ x: tc.x, y: tc.y - textHeight * 1.5 }, `${areaM2.toFixed(2)} m2`, textHeight, `${layerPrefix}DIMENSIONS`);
+        }
+
+        if (shape.showPerimeter) {
+          const perimPx = getPolygonPerimeter(shape.points);
+          const perimM = perimPx / pixelsPerMeter;
+          const textHeight = pixelsPerMeter ? 0.2 : 15;
+          dxf += dxfText({ x: tc.x, y: tc.y - textHeight * 3 }, `P: ${perimM.toFixed(2)} m`, textHeight, `${layerPrefix}DIMENSIONS`);
+        }
+      }
+    } else if (shape.type === 'line' || shape.type === 'arrow') {
+      const [p1, p2] = shape.points.map(transformPoint);
+      dxf += dxfLine(p1, p2, layer);
+
+      // Add measurement for lines
+      if (includeMeasurements && pixelsPerMeter && shape.type === 'line') {
+        const mid = getMidpoint(shape.points[0], shape.points[1]);
+        const tm = transformPoint(mid);
+        const dist = getDistance(shape.points[0], shape.points[1]) / pixelsPerMeter;
+        const textHeight = pixelsPerMeter ? 0.15 : 10;
+        dxf += dxfText(tm, `${dist.toFixed(2)} m`, textHeight, `${layerPrefix}DIMENSIONS`);
+      }
+    } else if (shape.type === 'circle') {
+      const center = transformPoint(shape.points[0]);
+      const edge = transformPoint(shape.points[1]);
+      const radius = Math.sqrt(Math.pow(edge.x - center.x, 2) + Math.pow(edge.y - center.y, 2));
+      dxf += dxfCircle(center, radius, layer);
+    } else if (shape.type === 'text') {
+      const pos = transformPoint(shape.points[0]);
+      const textHeight = (shape.fontSize || 24) / (pixelsPerMeter || 100);
+      dxf += dxfText(pos, shape.label, textHeight, `${layerPrefix}LABELS`);
+    } else if (shape.type === 'axis' && shape.axisConfig) {
+      const { lines, labels } = getAxisSystemPoints(shape.points[0], shape.points[1], shape.axisConfig, pixelsPerMeter);
+
+      for (const [p1, p2] of lines) {
+        const tp1 = transformPoint(p1);
+        const tp2 = transformPoint(p2);
+        dxf += dxfLine(tp1, tp2, `${layerPrefix}AXES`);
+      }
+
+      if (includeLabels) {
+        for (const label of labels) {
+          const tp = transformPoint(label.pos);
+          const textHeight = pixelsPerMeter ? 0.2 : 15;
+          dxf += dxfText(tp, label.text, textHeight, `${layerPrefix}LABELS`);
+        }
+      }
+    } else if (shape.type === 'bullet') {
+      const pos = transformPoint(shape.points[0]);
+      const radius = ((shape.fontSize || 24) / 2) / (pixelsPerMeter || 100);
+      dxf += dxfCircle(pos, radius, layer);
+
+      if (includeLabels && shape.bulletLabel) {
+        const textHeight = ((shape.fontSize || 24) * 0.6) / (pixelsPerMeter || 100);
+        dxf += dxfText(pos, shape.bulletLabel, textHeight, `${layerPrefix}LABELS`);
+      }
+    }
+  }
+
+  // Add coordinate reference points if using world coordinates
+  if (useWorldCoordinates && coordRefs.length === 2) {
+    for (const ref of coordRefs) {
+      const tp = transformPoint(ref.pixel);
+      dxf += dxfCircle(tp, 0.5, `${layerPrefix}DIMENSIONS`);
+      dxf += dxfText({ x: tp.x + 0.6, y: tp.y }, `REF${ref.id}: (${ref.world.x.toFixed(3)}, ${ref.world.y.toFixed(3)})`, 0.2, `${layerPrefix}DIMENSIONS`);
+    }
+  }
+
+  dxf += dxfEntitiesEnd();
+
+  return dxf;
+};
+
+const getShapeLayer = (type: string): string => {
+  switch (type) {
+    case 'polygon':
+    case 'rectangle':
+    case 'square':
+    case 'triangle':
+    case 'circle':
+      return 'AREAS';
+    case 'line':
+    case 'arrow':
+      return 'LINES';
+    case 'axis':
+      return 'AXES';
+    case 'text':
+    case 'bullet':
+    case 'callout':
+      return 'LABELS';
+    default:
+      return 'AREAS';
+  }
+};
+
+
+// ============================================
+// GeoJSON EXPORT (alternative for web GIS)
+// ============================================
+
+export interface GeoJsonExportOptions {
+  sheet: Sheet;
+  pixelsPerMeter: number | null;
+  useWorldCoordinates: boolean;
+}
+
+export const exportToGeoJson = (options: GeoJsonExportOptions): object => {
+  const { sheet, pixelsPerMeter, useWorldCoordinates } = options;
+  const coordRefs = sheet.coordRefs;
+
+  const transformPoint = (p: Point): [number, number] => {
+    if (useWorldCoordinates && coordRefs.length === 2) {
+      const world = transformPointToWorld(p, coordRefs[0], coordRefs[1]);
+      return [world.x, world.y];
+    } else if (pixelsPerMeter) {
+      return [p.x / pixelsPerMeter, -p.y / pixelsPerMeter];
+    } else {
+      return [p.x, -p.y];
+    }
+  };
+
+  const features: object[] = [];
+
+  for (const shape of sheet.shapes) {
+    if (shape.visible === false) continue;
+
+    let geometry: object | null = null;
+    const properties: Record<string, unknown> = {
+      id: shape.id,
+      type: shape.type,
+      label: shape.label,
+      color: shape.color
+    };
+
+    if (pixelsPerMeter) {
+      if (shape.showArea && (shape.type === 'polygon' || shape.type === 'rectangle')) {
+        const areaPx = getPolygonArea(shape.points);
+        properties.area_m2 = areaPx / (pixelsPerMeter * pixelsPerMeter);
+      }
+      if (shape.showPerimeter && (shape.type === 'polygon' || shape.type === 'rectangle')) {
+        const perimPx = getPolygonPerimeter(shape.points);
+        properties.perimeter_m = perimPx / pixelsPerMeter;
+      }
+    }
+
+    if (shape.type === 'polygon' || shape.type === 'rectangle' || shape.type === 'square' || shape.type === 'triangle') {
+      const coords = shape.points.map(transformPoint);
+      coords.push(coords[0]); // Close the polygon
+      geometry = {
+        type: 'Polygon',
+        coordinates: [coords]
+      };
+    } else if (shape.type === 'line' || shape.type === 'arrow') {
+      geometry = {
+        type: 'LineString',
+        coordinates: shape.points.map(transformPoint)
+      };
+
+      if (pixelsPerMeter) {
+        properties.length_m = getDistance(shape.points[0], shape.points[1]) / pixelsPerMeter;
+      }
+    } else if (shape.type === 'circle') {
+      // GeoJSON doesn't have native circle, use center point with radius property
+      geometry = {
+        type: 'Point',
+        coordinates: transformPoint(shape.points[0])
+      };
+
+      if (pixelsPerMeter) {
+        const radiusPx = getDistance(shape.points[0], shape.points[1]);
+        properties.radius_m = radiusPx / pixelsPerMeter;
+      }
+    } else if (shape.type === 'text' || shape.type === 'bullet' || shape.type === 'icon') {
+      geometry = {
+        type: 'Point',
+        coordinates: transformPoint(shape.points[0])
+      };
+
+      if (shape.type === 'bullet') {
+        properties.bulletLabel = shape.bulletLabel;
+      }
+      if (shape.type === 'icon') {
+        properties.iconName = shape.iconName;
+      }
+    }
+
+    if (geometry) {
+      features.push({
+        type: 'Feature',
+        properties,
+        geometry
+      });
+    }
+  }
+
+  return {
+    type: 'FeatureCollection',
+    name: sheet.title || 'Visual Mapper Export',
+    crs: useWorldCoordinates && coordRefs.length === 2 ? {
+      type: 'name',
+      properties: {
+        name: 'urn:ogc:def:crs:EPSG::3301' // Estonian coordinate system (L-EST97)
+      }
+    } : null,
+    features
+  };
+};
+
+
+// ============================================
+// PNG EXPORT (improved)
+// ============================================
+
+export interface PngExportOptions {
+  sheet: Sheet;
+  image: HTMLImageElement;
+  svgElement: SVGSVGElement;
+  quality?: number;
+}
+
+export const exportToPng = async (options: PngExportOptions): Promise<Blob> => {
+  const { sheet, image, svgElement, quality = 1 } = options;
+
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      reject(new Error('Canvas konteksti loomine ebaonnestus'));
+      return;
+    }
+
+    // Draw background image
+    ctx.drawImage(image, 0, 0);
+
+    // Clone and prepare SVG
+    const svgClone = svgElement.cloneNode(true) as SVGSVGElement;
+    svgClone.setAttribute('width', image.naturalWidth.toString());
+    svgClone.setAttribute('height', image.naturalHeight.toString());
+    svgClone.setAttribute('viewBox', `0 0 ${image.naturalWidth} ${image.naturalHeight}`);
+
+    // Serialize SVG
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    const svgImg = new Image();
+    svgImg.onload = () => {
+      ctx.drawImage(svgImg, 0, 0);
+      URL.revokeObjectURL(url);
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('PNG loomine ebaonnestus'));
+        }
+      }, 'image/png', quality);
+    };
+
+    svgImg.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('SVG pildi laadimine ebaonnestus'));
+    };
+
+    svgImg.src = url;
+  });
+};

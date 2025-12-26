@@ -11,24 +11,31 @@ import IconPickerModal from './components/IconPickerModal';
 import PageSettingsModal from './components/PageSettingsModal';
 import NewSheetModal from './components/NewSheetModal';
 import AxisCreationModal from './components/AxisCreationModal';
+import AlertModal, { useAlert } from './components/AlertModal';
+import ExportModal, { ExportOptions } from './components/ExportModal';
 import { Shape, ToolType, Viewport, CoordinateReference, Point, ProjectFile, ShapeType, PageConfig, SavedStyle, Sheet, RecentTool, AxisConfig } from './types';
 import { loadPdfPage } from './utils/pdf';
 import { doPolygonsIntersect, toRoman } from './utils/geometry';
+import { exportToPdf, exportToDxf, exportToGeoJson, exportToPng } from './utils/export';
 import { COLORS } from './constants';
-import { jsPDF } from 'jspdf';
 import { Plus, X } from 'lucide-react';
 
 const App = () => {
   // --- MULTI-PAGE STATE ---
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [activeSheetId, setActiveSheetId] = useState<string | null>(null);
-  
+
   const [customColors, setCustomColors] = useState<string[]>([]);
   // Open new sheet modal if no sheets exist
   const [showNewSheetModal, setShowNewSheetModal] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
-  
+
   const [recentTools, setRecentTools] = useState<RecentTool[]>([]);
+
+  // Alert and Export modals
+  const { alertState, hideAlert, showError, showWarning, showSuccess } = useAlert();
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Load effect
   useEffect(() => {
@@ -369,7 +376,7 @@ const App = () => {
         const updatedSheet = { ...sheet, imageData: imgData, imageDimensions: { width: w, height: h }, scale: fitScale, viewport: { x: (vw - w * fitScale) / 2, y: 20, scale: fitScale }, title: file.name.replace(/\.[^/.]+$/, "") };
         setSheets(prev => [...prev, updatedSheet]);
         setActiveSheetId(sheet.id);
-    } catch (err) { console.error(err); alert("Viga faili laadimisel."); } finally { setIsLoading(false); }
+    } catch (err) { console.error(err); showError('Viga', 'Viga faili laadimisel.'); } finally { setIsLoading(false); }
   };
 
   const handleGlobalDrop = (e: React.DragEvent) => {
@@ -592,42 +599,115 @@ const App = () => {
             if (data.savedStyles) setSavedStyles(data.savedStyles);
             if (data.pageConfig) setPageConfig(data.pageConfig);
             if (data.customColors) setCustomColors(data.customColors);
-        } catch (e) { alert("Viga faili lugemisel"); }
+        } catch (e) { showError('Viga', 'Viga faili lugemisel'); }
     };
     reader.readAsText(file);
   };
 
-  const handleExportPng = () => {
-      if (!activeSheet || !image) return;
-      const canvas = document.createElement('canvas');
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+  const handleExport = async (options: ExportOptions) => {
+    if (!activeSheet) {
+      showError('Ekspordi viga', 'Aktiivne leht puudub');
+      return;
+    }
 
-      // Draw background
-      ctx.drawImage(image, 0, 0);
+    setIsExporting(true);
 
-      // Create a blob from the container SVG or simulate it?
-      // Simpler approach: Locate the SVG element in DOM and serialize it
-      const svgEl = document.querySelector('#canvas-layer svg') as SVGSVGElement;
-      if (svgEl) {
-          const svgData = new XMLSerializer().serializeToString(svgEl);
-          const img = new Image();
-          const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
-          const url = URL.createObjectURL(svgBlob);
-          
-          img.onload = () => {
-              ctx.drawImage(img, 0, 0);
-              URL.revokeObjectURL(url);
-              const pngUrl = canvas.toDataURL('image/png');
-              const link = document.createElement('a');
-              link.download = `${activeSheet.title || 'joonis'}.png`;
-              link.href = pngUrl;
-              link.click();
-          };
-          img.src = url;
+    try {
+      const filename = activeSheet.title || 'joonis';
+
+      if (options.format === 'png') {
+        if (!image) {
+          showError('Ekspordi viga', 'Pilt puudub');
+          setIsExporting(false);
+          return;
+        }
+
+        const svgEl = document.querySelector('#canvas-layer svg') as SVGSVGElement;
+        if (!svgEl) {
+          showError('Ekspordi viga', 'SVG element puudub');
+          setIsExporting(false);
+          return;
+        }
+
+        const blob = await exportToPng({ sheet: activeSheet, image, svgElement: svgEl });
+        downloadBlob(blob, `${filename}.png`);
+        showSuccess('Eksport onnestus', 'PNG fail on allalaaditud');
+      } else if (options.format === 'pdf') {
+        if (!image) {
+          showError('Ekspordi viga', 'Pilt puudub PDF loomiseks');
+          setIsExporting(false);
+          return;
+        }
+
+        const blob = await exportToPdf({
+          sheet: activeSheet,
+          image,
+          pixelsPerMeter,
+          pageConfig,
+          includeHeader: options.includeHeader,
+          includeFooter: options.includeFooter
+        });
+        downloadBlob(blob, `${filename}.pdf`);
+        showSuccess('Eksport onnestus', 'PDF fail on allalaaditud');
+      } else if (options.format === 'dxf') {
+        const dxfContent = exportToDxf({
+          sheet: activeSheet,
+          pixelsPerMeter,
+          useWorldCoordinates: options.useWorldCoordinates,
+          includeLabels: options.includeLabels,
+          includeMeasurements: options.includeMeasurements,
+          layerPrefix: options.layerPrefix
+        });
+        const blob = new Blob([dxfContent], { type: 'application/dxf' });
+        downloadBlob(blob, `${filename}.dxf`);
+        showSuccess('Eksport onnestus', 'DXF fail on allalaaditud.\nFail on uhilduv Trimble Connect, AutoCAD jt rakendustega.');
+      } else if (options.format === 'geojson') {
+        const geojson = exportToGeoJson({
+          sheet: activeSheet,
+          pixelsPerMeter,
+          useWorldCoordinates: options.useWorldCoordinates
+        });
+        const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+        downloadBlob(blob, `${filename}.geojson`);
+        showSuccess('Eksport onnestus', 'GeoJSON fail on allalaaditud');
       }
+
+      setShowExportModal(false);
+    } catch (error) {
+      console.error('Export error:', error);
+      showError('Ekspordi viga', error instanceof Error ? error.message : 'Tundmatu viga eksportimisel');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleQuickExportPng = async () => {
+    if (!activeSheet || !image) {
+      showError('Ekspordi viga', 'Pilt puudub');
+      return;
+    }
+
+    const svgEl = document.querySelector('#canvas-layer svg') as SVGSVGElement;
+    if (!svgEl) {
+      showError('Ekspordi viga', 'SVG element puudub');
+      return;
+    }
+
+    try {
+      const blob = await exportToPng({ sheet: activeSheet, image, svgElement: svgEl });
+      downloadBlob(blob, `${activeSheet.title || 'joonis'}.png`);
+    } catch (error) {
+      showError('Ekspordi viga', error instanceof Error ? error.message : 'PNG loomine ebaonnestus');
+    }
   };
 
   return (
@@ -646,8 +726,9 @@ const App = () => {
         onUpload={(e) => { if(e.target.files?.[0]) handleCreateSheet('upload', e.target.files[0]); }}
         onSaveProject={handleSaveProject}
         onLoadProject={handleLoadProject}
-        onExport={handleExportPng} 
-        onExportPdf={handleExportPng}
+        onExport={handleQuickExportPng}
+        onExportPdf={() => setShowExportModal(true)}
+        onOpenExportModal={() => setShowExportModal(true)}
         title={activeSheet?.title || "Projekt"} 
         setTitle={(t) => updateActiveSheet({ title: t })}
         description={activeSheet?.description || ""} 
@@ -709,7 +790,12 @@ const App = () => {
                     gridConfig={activeSheet.gridConfig} onUpdateGridConfig={(gc) => updateActiveSheet({ gridConfig: gc })}
                     recentTools={recentTools} onUseRecentTool={handleUseRecentTool}
                     defaultStyles={defaultStyles}
-                    axisCreationConfig={axisCreationConfig} 
+                    axisCreationConfig={axisCreationConfig}
+                    onShowAlert={(type, title, message) => {
+                      if (type === 'error') showError(title, message);
+                      else if (type === 'warning') showWarning(title, message);
+                      else showSuccess(title, message);
+                    }}
                 />
                 
                 {/* MINIMAP RESTORED */}
@@ -786,13 +872,34 @@ const App = () => {
            {showCalibrationList && activeSheet && (<CalibrationListModal calibrations={activeSheet.calibrationData} onUpdate={(index, meters) => { const newData = [...activeSheet.calibrationData]; newData[index].meters = meters; updateActiveSheet({ calibrationData: newData }); }} onDelete={(index) => { const newData = activeSheet.calibrationData.filter((_, i) => i !== index); updateActiveSheet({ calibrationData: newData }); }} onClose={() => setShowCalibrationList(false)} />)}
            {showIconPicker && (<IconPickerModal onSelect={(iconName) => { if (iconPickerTargetId) { handleShapeUpdate(iconPickerTargetId, { iconName }); } else { handleDefaultStyleUpdate('icon', { iconName }); } setShowIconPicker(false); setIconPickerTargetId(null); }} onClose={() => { setShowIconPicker(false); setIconPickerTargetId(null); }} />)}
            {showPageSettings && (<PageSettingsModal config={pageConfig} onSave={setPageConfig} onClose={() => setShowPageSettings(false)} />)}
+
+           {/* Alert Modal */}
+           <AlertModal
+             isOpen={alertState.isOpen}
+             type={alertState.type}
+             title={alertState.title}
+             message={alertState.message}
+             onClose={hideAlert}
+             onConfirm={alertState.onConfirm}
+             showCancel={alertState.showCancel}
+           />
+
+           {/* Export Modal */}
+           <ExportModal
+             isOpen={showExportModal}
+             onClose={() => setShowExportModal(false)}
+             onExport={handleExport}
+             hasCalibration={isCalibrated}
+             hasCoordRefs={(activeSheet?.coordRefs?.length || 0) >= 2}
+             isExporting={isExporting}
+           />
         </div>
 
         <Sidebar 
           shapes={activeSheet?.shapes || []}
           selectedId={selectedIds.length === 1 ? selectedIds[0] : null} selectedIds={selectedIds}
           onSelect={(id) => setSelectedIds([id])} onMultiSelect={setSelectedIds}
-          onDelete={handleShapeDelete} onMultiDelete={handleShapeDelete}
+          onDelete={(id) => handleShapeDelete([id])} onMultiDelete={handleShapeDelete}
           onUpdate={handleShapeUpdate} onMultiUpdate={(ids, u) => {
               if(!activeSheet) return;
               const newShapes = activeSheet.shapes.map(s => ids.includes(s.id) ? { ...s, ...u } : s);

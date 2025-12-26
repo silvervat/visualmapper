@@ -20,8 +20,30 @@ const AxisCreationModal: React.FC<AxisCreationModalProps> = ({ onConfirm, onCanc
       spacingMm: 6000, count: 5, startLabel: 'A', lengthMm: 10000, bothEnds: false, reverse: false
   });
 
+  // Safe number parser with default value
+  const safeParseInt = (value: string, defaultValue: number, min: number = 1, max: number = 100000): number => {
+    const parsed = parseInt(value, 10);
+    if (isNaN(parsed)) return defaultValue;
+    return Math.max(min, Math.min(max, parsed));
+  };
+
   const handleConfirm = () => {
-      onConfirm(type, configX, configY, fullExtent);
+    // Validate before confirming
+    const validConfigX = {
+      ...configX,
+      spacingMm: Math.max(100, configX.spacingMm),
+      count: Math.max(1, Math.min(100, configX.count)),
+      lengthMm: Math.max(100, configX.lengthMm),
+      startLabel: configX.startLabel || '1'
+    };
+    const validConfigY = {
+      ...configY,
+      spacingMm: Math.max(100, configY.spacingMm),
+      count: Math.max(1, Math.min(100, configY.count)),
+      lengthMm: Math.max(100, configY.lengthMm),
+      startLabel: configY.startLabel || 'A'
+    };
+    onConfirm(type, validConfigX, validConfigY, fullExtent);
   };
 
   const renderConfig = (label: string, config: AxisConfig, setConfig: React.Dispatch<React.SetStateAction<AxisConfig>>) => (
@@ -30,37 +52,44 @@ const AxisCreationModal: React.FC<AxisCreationModalProps> = ({ onConfirm, onCanc
           <div className="grid grid-cols-2 gap-2">
               <div>
                   <label className="text-[10px] text-gray-500">Samm (mm)</label>
-                  <input 
-                      type="number" 
-                      value={config.spacingMm} 
-                      onChange={(e) => setConfig({...config, spacingMm: parseInt(e.target.value)})}
+                  <input
+                      type="number"
+                      value={config.spacingMm}
+                      min={100}
+                      max={100000}
+                      onChange={(e) => setConfig({...config, spacingMm: safeParseInt(e.target.value, config.spacingMm, 100, 100000)})}
                       className="w-full text-sm border border-gray-300 rounded p-1"
                   />
               </div>
               <div>
                   <label className="text-[10px] text-gray-500">Kogus</label>
-                  <input 
-                      type="number" 
-                      value={config.count} 
-                      onChange={(e) => setConfig({...config, count: parseInt(e.target.value)})}
+                  <input
+                      type="number"
+                      value={config.count}
+                      min={1}
+                      max={100}
+                      onChange={(e) => setConfig({...config, count: safeParseInt(e.target.value, config.count, 1, 100)})}
                       className="w-full text-sm border border-gray-300 rounded p-1"
                   />
               </div>
               <div>
                   <label className="text-[10px] text-gray-500">Algus</label>
-                  <input 
-                      type="text" 
-                      value={config.startLabel} 
-                      onChange={(e) => setConfig({...config, startLabel: e.target.value})}
+                  <input
+                      type="text"
+                      value={config.startLabel}
+                      maxLength={5}
+                      onChange={(e) => setConfig({...config, startLabel: e.target.value || '1'})}
                       className="w-full text-sm border border-gray-300 rounded p-1"
                   />
               </div>
               <div>
                   <label className="text-[10px] text-gray-500">Joone Pikkus (mm)</label>
-                  <input 
-                      type="number" 
-                      value={config.lengthMm} 
-                      onChange={(e) => setConfig({...config, lengthMm: parseInt(e.target.value)})}
+                  <input
+                      type="number"
+                      value={config.lengthMm}
+                      min={100}
+                      max={500000}
+                      onChange={(e) => setConfig({...config, lengthMm: safeParseInt(e.target.value, config.lengthMm, 100, 500000)})}
                       className={`w-full text-sm border border-gray-300 rounded p-1 ${fullExtent ? 'bg-gray-100 text-gray-400' : ''}`}
                       disabled={fullExtent}
                   />
