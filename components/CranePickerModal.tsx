@@ -112,11 +112,14 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
   // Configuration for the selected crane
   const [config, setConfig] = useState({
     workingRadiusM: 10,
-    boomAngleDeg: -90,
+    boomAngleDeg: -90,       // Noole suund (0 = paremal, -90 = üleval)
+    rotationDeg: 0,          // Kraana keha pööre
     showRadiusCircle: true,
     showOutriggers: true,
     showBoom: true,
     showDimensions: true,
+    showWheels: true,
+    wheelAxles: 4,
     radiusCircles: [10, 20, 30] as number[],
   });
 
@@ -146,16 +149,21 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
       manufacturer: selectedCrane.manufacturer,
       bodyLengthM: selectedCrane.bodyLengthM,
       bodyWidthM: selectedCrane.bodyWidthM,
+      cabinOffsetM: selectedCrane.bodyLengthM * 0.3,
       outriggerSpreadM: selectedCrane.outriggers.spreadFrontM,
-      outriggerLengthM: 1.5,
+      outriggerLengthM: 2.0,
+      wheelBaseM: selectedCrane.bodyLengthM * 0.7,
+      wheelAxles: config.wheelAxles,
       currentRadiusM: config.workingRadiusM,
       showRadiusCircle: config.showRadiusCircle,
       radiusCircles: config.radiusCircles,
       boomLengthM: selectedCrane.boomLengths[0],
       boomAngleDeg: config.boomAngleDeg,
+      rotationDeg: config.rotationDeg,
       showDimensions: config.showDimensions,
       showOutriggers: config.showOutriggers,
       showBoom: config.showBoom,
+      showWheels: config.showWheels,
     };
 
     onSelectCrane(selectedCrane, craneConfig);
@@ -367,7 +375,7 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
           {selectedCrane && (
             <div className="mt-4 border-t pt-4">
               <h3 className="font-medium mb-3">Seadistused: {selectedCrane.model}</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="text-sm text-gray-600">Tööraadius (m)</label>
                   <input
@@ -378,15 +386,49 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Noole suund (kraadid)</label>
-                  <input
-                    type="number"
+                  <label className="text-sm text-gray-600">Noole suund (°)</label>
+                  <select
                     value={config.boomAngleDeg}
                     onChange={(e) => setConfig({ ...config, boomAngleDeg: parseFloat(e.target.value) })}
                     className="w-full border rounded px-2 py-1 mt-1"
-                  />
+                  >
+                    <option value={0}>Paremale (0°)</option>
+                    <option value={-45}>Üles-paremale (-45°)</option>
+                    <option value={-90}>Üles (-90°)</option>
+                    <option value={-135}>Üles-vasakule (-135°)</option>
+                    <option value={180}>Vasakule (180°)</option>
+                    <option value={135}>Alla-vasakule (135°)</option>
+                    <option value={90}>Alla (90°)</option>
+                    <option value={45}>Alla-paremale (45°)</option>
+                  </select>
                 </div>
                 <div>
+                  <label className="text-sm text-gray-600">Kraana suund (°)</label>
+                  <select
+                    value={config.rotationDeg}
+                    onChange={(e) => setConfig({ ...config, rotationDeg: parseFloat(e.target.value) })}
+                    className="w-full border rounded px-2 py-1 mt-1"
+                  >
+                    <option value={0}>Paremale (0°)</option>
+                    <option value={-90}>Üles (-90°)</option>
+                    <option value={180}>Vasakule (180°)</option>
+                    <option value={90}>Alla (90°)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm text-gray-600">Telgede arv</label>
+                  <select
+                    value={config.wheelAxles}
+                    onChange={(e) => setConfig({ ...config, wheelAxles: parseInt(e.target.value) })}
+                    className="w-full border rounded px-2 py-1 mt-1"
+                  >
+                    <option value={2}>2 telge</option>
+                    <option value={3}>3 telge</option>
+                    <option value={4}>4 telge</option>
+                    <option value={5}>5 telge</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
                   <label className="text-sm text-gray-600">Raadiusringid (m, komaga eraldatud)</label>
                   <input
                     type="text"
@@ -400,14 +442,14 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
                     className="w-full border rounded px-2 py-1 mt-1"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="col-span-3 grid grid-cols-5 gap-2">
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={config.showRadiusCircle}
                       onChange={(e) => setConfig({ ...config, showRadiusCircle: e.target.checked })}
                     />
-                    Näita raadiusringe
+                    Raadiused
                   </label>
                   <label className="flex items-center gap-2 text-sm">
                     <input
@@ -415,7 +457,7 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
                       checked={config.showOutriggers}
                       onChange={(e) => setConfig({ ...config, showOutriggers: e.target.checked })}
                     />
-                    Näita käpasid
+                    Käpad
                   </label>
                   <label className="flex items-center gap-2 text-sm">
                     <input
@@ -423,7 +465,15 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
                       checked={config.showBoom}
                       onChange={(e) => setConfig({ ...config, showBoom: e.target.checked })}
                     />
-                    Näita noolt
+                    Nool
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={config.showWheels}
+                      onChange={(e) => setConfig({ ...config, showWheels: e.target.checked })}
+                    />
+                    Rattad
                   </label>
                   <label className="flex items-center gap-2 text-sm">
                     <input
@@ -431,7 +481,7 @@ export const CranePickerModal: React.FC<CranePickerModalProps> = ({
                       checked={config.showDimensions}
                       onChange={(e) => setConfig({ ...config, showDimensions: e.target.checked })}
                     />
-                    Näita mõõte
+                    Mõõdud
                   </label>
                 </div>
               </div>

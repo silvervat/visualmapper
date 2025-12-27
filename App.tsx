@@ -42,19 +42,24 @@ const App = () => {
   const [showCranePicker, setShowCranePicker] = useState(false);
   const [customCranes, setCustomCranes] = useState<CraneModel[]>([]);
 
-  // Load effect
+  // Load saved data from localStorage on mount only
   useEffect(() => {
       const savedColors = localStorage.getItem('vm_customColors');
       if (savedColors) setCustomColors(JSON.parse(savedColors));
-      
+
       const savedStylesLocal = localStorage.getItem('vm_savedStyles');
       if (savedStylesLocal) {
           try {
               setSavedStyles(JSON.parse(savedStylesLocal));
           } catch(e) { console.error("Error loading styles", e); }
       }
-      
-      // Check if we need to show the new sheet modal
+
+      // Show new sheet modal on initial load if no sheets
+      setShowNewSheetModal(true);
+  }, []);
+
+  // Show new sheet modal when all sheets are deleted
+  useEffect(() => {
       if (sheets.length === 0) {
           setShowNewSheetModal(true);
       }
@@ -328,11 +333,11 @@ const App = () => {
       if (type === 'blank' && data) {
           const aspectRatio = data.width / data.height;
           // Increased maxDim from 3000 to 14000 to allow high-precision zooming (mm level)
-          // 14000px / 100m = 140px/m. 
-          const maxDim = 14000; 
+          // 14000px / 100m = 140px/m.
+          const maxDim = 14000;
           let canvasW = maxDim;
           let canvasH = maxDim;
-          
+
           if (aspectRatio > 1) {
               canvasH = maxDim / aspectRatio;
               canvasW = maxDim;
@@ -346,10 +351,10 @@ const App = () => {
           canvas.height = Math.round(canvasH);
           const ctx = canvas.getContext('2d');
           if (ctx) { ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-          
+
           newSheet.imageData = canvas.toDataURL('image/png');
           newSheet.imageDimensions = { width: canvas.width, height: canvas.height };
-          
+
           if (data.unit === 'm' || data.unit === 'mm') {
               const metersW = data.unit === 'm' ? data.width : data.width / 1000;
               newSheet.calibrationData = [{
@@ -357,6 +362,13 @@ const App = () => {
                   meters: metersW
               }];
           }
+
+          // Calculate fit-to-screen scale (same as for uploaded images)
+          const vw = window.innerWidth - 320; // Account for sidebar
+          const vh = window.innerHeight - 60; // Account for toolbar
+          const fitScale = Math.min(vw / canvas.width, vh / canvas.height) * 0.9;
+          newSheet.scale = fitScale;
+          newSheet.viewport = { x: (vw - canvas.width * fitScale) / 2, y: 20, scale: fitScale };
 
           setSheets(prev => [...prev, newSheet]);
           setActiveSheetId(id);

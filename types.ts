@@ -121,10 +121,15 @@ export interface Shape {
     // Dimensions in meters
     bodyLengthM: number;           // Masina keha pikkus
     bodyWidthM: number;            // Masina keha laius
+    cabinOffsetM: number;          // Kabiini asukoht eest (m)
 
     // Outriggers (Käpad) - distance from center
     outriggerSpreadM: number;      // Käppade laius (total width when extended)
     outriggerLengthM: number;      // Käppade pikkus
+
+    // Wheel configuration
+    wheelBaseM: number;            // Teljevahe (m)
+    wheelAxles: number;            // Telgede arv (2, 3, 4, 5)
 
     // Working radius
     currentRadiusM: number;        // Praegune tööraadius
@@ -133,12 +138,16 @@ export interface Shape {
 
     // Boom
     boomLengthM: number;           // Noole pikkus
-    boomAngleDeg: number;          // Noole suund (0 = paremal, 90 = üleval jne)
+    boomAngleDeg: number;          // Noole suund (0 = paremal, 90 = üleval, -90 = all jne)
+
+    // Rotation
+    rotationDeg: number;           // Kraana keha pööre (0 = nool paremale)
 
     // Visual options
     showDimensions: boolean;       // Näita mõõtjooni
     showOutriggers: boolean;       // Näita käpasid
     showBoom: boolean;             // Näita noolt
+    showWheels: boolean;           // Näita rattaid
   };
 }
 

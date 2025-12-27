@@ -1026,6 +1026,8 @@ const Canvas: React.FC<CanvasProps> = ({
                      const cfg = shape.craneConfig;
                      const center = shape.points[0];
                      const ppm = pixelsPerMeter;
+                     const rotation = (cfg.rotationDeg || 0);
+                     const boomAngle = (cfg.boomAngleDeg || 0);
 
                      // Convert meters to pixels
                      const bodyW = cfg.bodyWidthM * ppm;
@@ -1033,145 +1035,354 @@ const Canvas: React.FC<CanvasProps> = ({
                      const outriggerSpread = cfg.outriggerSpreadM * ppm;
                      const outriggerLen = cfg.outriggerLengthM * ppm;
                      const boomLen = cfg.boomLengthM * ppm;
-                     const boomAngle = (cfg.boomAngleDeg || 0) * Math.PI / 180;
+                     const wheelBase = (cfg.wheelBaseM || cfg.bodyLengthM * 0.7) * ppm;
+                     const wheelAxles = cfg.wheelAxles || 4;
+                     const wheelW = bodyW * 0.15;
+                     const wheelH = bodyL * 0.08;
+                     const turntableR = Math.min(bodyW, bodyL) * 0.4;
+                     const counterWeightW = bodyW * 0.8;
+                     const counterWeightH = bodyL * 0.15;
 
                      return (
                          <g key={shape.id} transform={`translate(${center.x},${center.y})`}>
-                             {/* Radius circles */}
+                             {/* Radius circles - not rotated, always centered */}
                              {cfg.showRadiusCircle && cfg.radiusCircles.map((r, i) => (
-                                 <circle
-                                     key={`radius-${i}`}
-                                     cx={0}
-                                     cy={0}
-                                     r={r * ppm}
-                                     fill="none"
-                                     stroke={shape.color}
-                                     strokeWidth={1.5/scale}
-                                     strokeDasharray={`${8/scale},${4/scale}`}
-                                     opacity={0.6}
-                                 />
+                                 <g key={`radius-${i}`}>
+                                     <circle
+                                         cx={0}
+                                         cy={0}
+                                         r={r * ppm}
+                                         fill="none"
+                                         stroke={shape.color}
+                                         strokeWidth={1.5/scale}
+                                         strokeDasharray={`${8/scale},${4/scale}`}
+                                         opacity={0.5}
+                                     />
+                                     {/* Radius label */}
+                                     <text
+                                         x={r * ppm * 0.7}
+                                         y={-r * ppm * 0.7}
+                                         fontSize={11/scale}
+                                         fill={shape.color}
+                                         fontWeight="500"
+                                         opacity={0.8}
+                                     >
+                                         R={r}m
+                                     </text>
+                                 </g>
                              ))}
 
-                             {/* Outriggers (Käpad) */}
-                             {cfg.showOutriggers && (
-                                 <>
-                                     {/* Front left */}
-                                     <rect
-                                         x={-outriggerSpread/2 - 15/scale}
-                                         y={-bodyL/2 - outriggerLen}
-                                         width={30/scale}
-                                         height={outriggerLen}
-                                         fill="#374151"
-                                         stroke="#111827"
-                                         strokeWidth={1/scale}
-                                     />
-                                     <circle cx={-outriggerSpread/2} cy={-bodyL/2 - outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+                             {/* Rotatable crane body group */}
+                             <g transform={`rotate(${rotation})`}>
+                                 {/* Outriggers (Käpad) - diagonal from corners */}
+                                 {cfg.showOutriggers && (
+                                     <g>
+                                         {/* Front Left outrigger */}
+                                         <line
+                                             x1={-bodyW/2}
+                                             y1={-bodyL * 0.35}
+                                             x2={-outriggerSpread/2}
+                                             y2={-outriggerLen - bodyL * 0.35}
+                                             stroke="#4b5563"
+                                             strokeWidth={8/scale}
+                                         />
+                                         <rect
+                                             x={-outriggerSpread/2 - 25/scale}
+                                             y={-outriggerLen - bodyL * 0.35 - 35/scale}
+                                             width={50/scale}
+                                             height={70/scale}
+                                             fill="#6b7280"
+                                             stroke="#374151"
+                                             strokeWidth={2/scale}
+                                             rx={4/scale}
+                                         />
 
-                                     {/* Front right */}
-                                     <rect
-                                         x={outriggerSpread/2 - 15/scale}
-                                         y={-bodyL/2 - outriggerLen}
-                                         width={30/scale}
-                                         height={outriggerLen}
-                                         fill="#374151"
-                                         stroke="#111827"
-                                         strokeWidth={1/scale}
-                                     />
-                                     <circle cx={outriggerSpread/2} cy={-bodyL/2 - outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+                                         {/* Front Right outrigger */}
+                                         <line
+                                             x1={bodyW/2}
+                                             y1={-bodyL * 0.35}
+                                             x2={outriggerSpread/2}
+                                             y2={-outriggerLen - bodyL * 0.35}
+                                             stroke="#4b5563"
+                                             strokeWidth={8/scale}
+                                         />
+                                         <rect
+                                             x={outriggerSpread/2 - 25/scale}
+                                             y={-outriggerLen - bodyL * 0.35 - 35/scale}
+                                             width={50/scale}
+                                             height={70/scale}
+                                             fill="#6b7280"
+                                             stroke="#374151"
+                                             strokeWidth={2/scale}
+                                             rx={4/scale}
+                                         />
 
-                                     {/* Rear left */}
-                                     <rect
-                                         x={-outriggerSpread/2 - 15/scale}
-                                         y={bodyL/2}
-                                         width={30/scale}
-                                         height={outriggerLen}
-                                         fill="#374151"
-                                         stroke="#111827"
-                                         strokeWidth={1/scale}
-                                     />
-                                     <circle cx={-outriggerSpread/2} cy={bodyL/2 + outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
+                                         {/* Rear Left outrigger */}
+                                         <line
+                                             x1={-bodyW/2}
+                                             y1={bodyL * 0.35}
+                                             x2={-outriggerSpread/2}
+                                             y2={outriggerLen + bodyL * 0.35}
+                                             stroke="#4b5563"
+                                             strokeWidth={8/scale}
+                                         />
+                                         <rect
+                                             x={-outriggerSpread/2 - 25/scale}
+                                             y={outriggerLen + bodyL * 0.35 - 35/scale}
+                                             width={50/scale}
+                                             height={70/scale}
+                                             fill="#6b7280"
+                                             stroke="#374151"
+                                             strokeWidth={2/scale}
+                                             rx={4/scale}
+                                         />
 
-                                     {/* Rear right */}
-                                     <rect
-                                         x={outriggerSpread/2 - 15/scale}
-                                         y={bodyL/2}
-                                         width={30/scale}
-                                         height={outriggerLen}
-                                         fill="#374151"
-                                         stroke="#111827"
-                                         strokeWidth={1/scale}
-                                     />
-                                     <circle cx={outriggerSpread/2} cy={bodyL/2 + outriggerLen} r={20/scale} fill="#4b5563" stroke="#111827" strokeWidth={1/scale} />
-                                 </>
-                             )}
+                                         {/* Rear Right outrigger */}
+                                         <line
+                                             x1={bodyW/2}
+                                             y1={bodyL * 0.35}
+                                             x2={outriggerSpread/2}
+                                             y2={outriggerLen + bodyL * 0.35}
+                                             stroke="#4b5563"
+                                             strokeWidth={8/scale}
+                                         />
+                                         <rect
+                                             x={outriggerSpread/2 - 25/scale}
+                                             y={outriggerLen + bodyL * 0.35 - 35/scale}
+                                             width={50/scale}
+                                             height={70/scale}
+                                             fill="#6b7280"
+                                             stroke="#374151"
+                                             strokeWidth={2/scale}
+                                             rx={4/scale}
+                                         />
+                                     </g>
+                                 )}
 
-                             {/* Crane body (top view) */}
-                             <rect
-                                 x={-bodyW/2}
-                                 y={-bodyL/2}
-                                 width={bodyW}
-                                 height={bodyL}
-                                 fill={shape.color}
-                                 stroke="#111827"
-                                 strokeWidth={2/scale}
-                                 opacity={shape.opacity || 0.8}
-                             />
+                                 {/* Wheels on both sides */}
+                                 {(cfg.showWheels !== false) && (
+                                     <g>
+                                         {Array.from({ length: wheelAxles }).map((_, i) => {
+                                             const yPos = -wheelBase/2 + (wheelBase / (wheelAxles - 1)) * i;
+                                             return (
+                                                 <g key={`axle-${i}`}>
+                                                     {/* Left wheel pair */}
+                                                     <rect
+                                                         x={-bodyW/2 - wheelW}
+                                                         y={yPos - wheelH/2}
+                                                         width={wheelW}
+                                                         height={wheelH}
+                                                         fill="#1f2937"
+                                                         stroke="#111827"
+                                                         strokeWidth={1/scale}
+                                                         rx={3/scale}
+                                                     />
+                                                     {/* Right wheel pair */}
+                                                     <rect
+                                                         x={bodyW/2}
+                                                         y={yPos - wheelH/2}
+                                                         width={wheelW}
+                                                         height={wheelH}
+                                                         fill="#1f2937"
+                                                         stroke="#111827"
+                                                         strokeWidth={1/scale}
+                                                         rx={3/scale}
+                                                     />
+                                                 </g>
+                                             );
+                                         })}
+                                     </g>
+                                 )}
 
-                             {/* Turntable circle */}
-                             <circle
-                                 cx={0}
-                                 cy={0}
-                                 r={Math.min(bodyW, bodyL) * 0.3}
-                                 fill="#fbbf24"
-                                 stroke="#111827"
-                                 strokeWidth={1/scale}
-                             />
+                                 {/* Main Chassis - rear section (engine) */}
+                                 <rect
+                                     x={-bodyW/2}
+                                     y={0}
+                                     width={bodyW}
+                                     height={bodyL/2}
+                                     fill="#9ca3af"
+                                     stroke="#4b5563"
+                                     strokeWidth={2/scale}
+                                 />
 
-                             {/* Boom direction */}
-                             {cfg.showBoom && (
-                                 <g>
-                                     <line
-                                         x1={0}
-                                         y1={0}
-                                         x2={Math.cos(boomAngle) * boomLen}
-                                         y2={Math.sin(boomAngle) * boomLen}
-                                         stroke="#dc2626"
-                                         strokeWidth={4/scale}
-                                     />
-                                     {/* Boom tip */}
-                                     <circle
-                                         cx={Math.cos(boomAngle) * boomLen}
-                                         cy={Math.sin(boomAngle) * boomLen}
-                                         r={8/scale}
-                                         fill="#dc2626"
-                                     />
+                                 {/* Main Chassis - front section */}
+                                 <rect
+                                     x={-bodyW/2}
+                                     y={-bodyL/2}
+                                     width={bodyW}
+                                     height={bodyL/2}
+                                     fill={shape.color}
+                                     stroke="#4b5563"
+                                     strokeWidth={2/scale}
+                                     opacity={shape.opacity || 0.9}
+                                 />
+
+                                 {/* Cabin */}
+                                 <rect
+                                     x={-bodyW/2 + bodyW * 0.1}
+                                     y={-bodyL/2 + bodyL * 0.05}
+                                     width={bodyW * 0.35}
+                                     height={bodyL * 0.2}
+                                     fill="#60a5fa"
+                                     stroke="#2563eb"
+                                     strokeWidth={2/scale}
+                                     rx={4/scale}
+                                 />
+
+                                 {/* Counterweight (back of turntable) */}
+                                 <rect
+                                     x={-counterWeightW/2}
+                                     y={turntableR * 0.3}
+                                     width={counterWeightW}
+                                     height={counterWeightH}
+                                     fill="#374151"
+                                     stroke="#1f2937"
+                                     strokeWidth={2/scale}
+                                     rx={4/scale}
+                                 />
+
+                                 {/* Turntable base */}
+                                 <circle
+                                     cx={0}
+                                     cy={0}
+                                     r={turntableR}
+                                     fill="#fbbf24"
+                                     stroke="#d97706"
+                                     strokeWidth={3/scale}
+                                 />
+
+                                 {/* Turntable inner ring */}
+                                 <circle
+                                     cx={0}
+                                     cy={0}
+                                     r={turntableR * 0.6}
+                                     fill="none"
+                                     stroke="#d97706"
+                                     strokeWidth={2/scale}
+                                 />
+
+                                 {/* Boom lattice structure */}
+                                 {cfg.showBoom && (
+                                     <g transform={`rotate(${boomAngle})`}>
+                                         {/* Boom main lines */}
+                                         <line
+                                             x1={turntableR * 0.3}
+                                             y1={-turntableR * 0.15}
+                                             x2={boomLen}
+                                             y2={-turntableR * 0.08}
+                                             stroke="#dc2626"
+                                             strokeWidth={5/scale}
+                                         />
+                                         <line
+                                             x1={turntableR * 0.3}
+                                             y1={turntableR * 0.15}
+                                             x2={boomLen}
+                                             y2={turntableR * 0.08}
+                                             stroke="#dc2626"
+                                             strokeWidth={5/scale}
+                                         />
+                                         {/* Boom cross braces */}
+                                         {Array.from({ length: Math.floor(boomLen / (50/scale)) }).map((_, i) => {
+                                             const x = turntableR * 0.3 + (i + 1) * (boomLen - turntableR * 0.3) / (Math.floor(boomLen / (50/scale)) + 1);
+                                             const yTop = -turntableR * 0.15 + (x - turntableR * 0.3) * (0.07 * turntableR) / (boomLen - turntableR * 0.3);
+                                             const yBot = turntableR * 0.15 - (x - turntableR * 0.3) * (0.07 * turntableR) / (boomLen - turntableR * 0.3);
+                                             return (
+                                                 <line
+                                                     key={`brace-${i}`}
+                                                     x1={x}
+                                                     y1={yTop}
+                                                     x2={x}
+                                                     y2={yBot}
+                                                     stroke="#dc2626"
+                                                     strokeWidth={2/scale}
+                                                 />
+                                             );
+                                         })}
+                                         {/* Boom tip / hook */}
+                                         <circle
+                                             cx={boomLen}
+                                             cy={0}
+                                             r={12/scale}
+                                             fill="#dc2626"
+                                             stroke="#991b1b"
+                                             strokeWidth={2/scale}
+                                         />
+                                         {/* Hook line */}
+                                         <line
+                                             x1={boomLen}
+                                             y1={12/scale}
+                                             x2={boomLen}
+                                             y2={30/scale}
+                                             stroke="#111827"
+                                             strokeWidth={2/scale}
+                                         />
+                                         <circle
+                                             cx={boomLen}
+                                             cy={35/scale}
+                                             r={8/scale}
+                                             fill="none"
+                                             stroke="#111827"
+                                             strokeWidth={2/scale}
+                                         />
+                                     </g>
+                                 )}
+
+                                 {/* Center point marker */}
+                                 <circle cx={0} cy={0} r={4/scale} fill="#111827" />
+                             </g>
+
+                             {/* Dimensions - outside rotation */}
+                             {cfg.showDimensions && (
+                                 <g transform={`rotate(${rotation})`}>
+                                     {/* Outrigger spread dimension */}
+                                     {cfg.showOutriggers && (
+                                         <>
+                                             <line
+                                                 x1={-outriggerSpread/2}
+                                                 y1={-outriggerLen - bodyL * 0.35 - 60/scale}
+                                                 x2={outriggerSpread/2}
+                                                 y2={-outriggerLen - bodyL * 0.35 - 60/scale}
+                                                 stroke="#374151"
+                                                 strokeWidth={1/scale}
+                                             />
+                                             <text
+                                                 x={0}
+                                                 y={-outriggerLen - bodyL * 0.35 - 70/scale}
+                                                 fontSize={11/scale}
+                                                 textAnchor="middle"
+                                                 fill="#374151"
+                                             >
+                                                 {cfg.outriggerSpreadM.toFixed(1)}m
+                                             </text>
+                                         </>
+                                     )}
                                  </g>
                              )}
 
-                             {/* Dimensions text */}
-                             {cfg.showDimensions && (
-                                 <>
-                                     {/* Width dimension */}
-                                     <text x={0} y={bodyL/2 + 25/scale} fontSize={12/scale} textAnchor="middle" fill="#111827">
-                                         {cfg.bodyWidthM.toFixed(1)}m
-                                     </text>
-                                     {/* Length dimension */}
-                                     <text x={bodyW/2 + 25/scale} y={0} fontSize={12/scale} textAnchor="start" dominantBaseline="middle" fill="#111827">
-                                         {cfg.bodyLengthM.toFixed(1)}m
-                                     </text>
-                                     {/* Outrigger spread */}
-                                     {cfg.showOutriggers && (
-                                         <text x={0} y={-bodyL/2 - outriggerLen - 30/scale} fontSize={12/scale} textAnchor="middle" fill="#374151">
-                                             Käpad: {cfg.outriggerSpreadM.toFixed(1)}m
-                                         </text>
-                                     )}
-                                 </>
-                             )}
-
-                             {/* Model name */}
-                             <text x={0} y={bodyL/2 + 45/scale} fontSize={14/scale} textAnchor="middle" fontWeight="bold" fill="#111827">
+                             {/* Model name label - always readable */}
+                             <text
+                                 x={0}
+                                 y={bodyL/2 + outriggerLen + 60/scale}
+                                 fontSize={14/scale}
+                                 textAnchor="middle"
+                                 fontWeight="bold"
+                                 fill="#111827"
+                             >
                                  {cfg.modelName}
                              </text>
+
+                             {/* Selection indicator */}
+                             {isSelected && (
+                                 <circle
+                                     cx={0}
+                                     cy={0}
+                                     r={Math.max(outriggerSpread/2, bodyL/2 + outriggerLen) + 20/scale}
+                                     fill="none"
+                                     stroke="#2563eb"
+                                     strokeWidth={2/scale}
+                                     strokeDasharray={`${6/scale},${3/scale}`}
+                                 />
+                             )}
                          </g>
                      );
                  }
