@@ -507,6 +507,118 @@ const Sidebar: React.FC<SidebarProps> = ({
                         </div>
                     )}
 
+                    {/* CRANE CONFIGURATION */}
+                    {shapeTypeForControls === 'crane' && shapeForControls?.craneConfig && (
+                        <div className="space-y-3 pb-2 border-b border-gray-200">
+                            <label className="text-xs font-bold text-gray-700 block">Kraana Seaded</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Noole Suund</label>
+                                    <select
+                                        value={shapeForControls.craneConfig?.boomAngleDeg || 0}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, boomAngleDeg: parseFloat(e.target.value) } })}
+                                        className="w-full text-xs border border-gray-300 rounded p-1"
+                                    >
+                                        <option value={0}>Paremale</option>
+                                        <option value={-45}>Üles-paremale</option>
+                                        <option value={-90}>Üles</option>
+                                        <option value={-135}>Üles-vasakule</option>
+                                        <option value={180}>Vasakule</option>
+                                        <option value={135}>Alla-vasakule</option>
+                                        <option value={90}>Alla</option>
+                                        <option value={45}>Alla-paremale</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Kraana Pööre</label>
+                                    <select
+                                        value={shapeForControls.craneConfig?.rotationDeg || 0}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, rotationDeg: parseFloat(e.target.value) } })}
+                                        className="w-full text-xs border border-gray-300 rounded p-1"
+                                    >
+                                        <option value={0}>0°</option>
+                                        <option value={-45}>-45°</option>
+                                        <option value={-90}>-90°</option>
+                                        <option value={-135}>-135°</option>
+                                        <option value={180}>180°</option>
+                                        <option value={135}>135°</option>
+                                        <option value={90}>90°</option>
+                                        <option value={45}>45°</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Telgede Arv</label>
+                                    <select
+                                        value={shapeForControls.craneConfig?.wheelAxles || 4}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, wheelAxles: parseInt(e.target.value) } })}
+                                        className="w-full text-xs border border-gray-300 rounded p-1"
+                                    >
+                                        <option value={2}>2</option>
+                                        <option value={3}>3</option>
+                                        <option value={4}>4</option>
+                                        <option value={5}>5</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-gray-500">Raadiused (m)</label>
+                                    <input
+                                        type="text"
+                                        value={(shapeForControls.craneConfig?.radiusCircles || []).join(', ')}
+                                        onChange={(e) => handleUpdate({
+                                            craneConfig: {
+                                                ...shapeForControls.craneConfig!,
+                                                radiusCircles: e.target.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
+                                            }
+                                        })}
+                                        className="w-full text-xs border border-gray-300 rounded p-1"
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                                <label className="flex items-center gap-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={shapeForControls.craneConfig?.showRadiusCircle ?? true}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, showRadiusCircle: e.target.checked } })}
+                                    />
+                                    Raadiused
+                                </label>
+                                <label className="flex items-center gap-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={shapeForControls.craneConfig?.showOutriggers ?? true}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, showOutriggers: e.target.checked } })}
+                                    />
+                                    Käpad
+                                </label>
+                                <label className="flex items-center gap-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={shapeForControls.craneConfig?.showBoom ?? true}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, showBoom: e.target.checked } })}
+                                    />
+                                    Nool
+                                </label>
+                                <label className="flex items-center gap-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={shapeForControls.craneConfig?.showWheels ?? true}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, showWheels: e.target.checked } })}
+                                    />
+                                    Rattad
+                                </label>
+                                <label className="flex items-center gap-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={shapeForControls.craneConfig?.showDimensions ?? true}
+                                        onChange={(e) => handleUpdate({ craneConfig: { ...shapeForControls.craneConfig!, showDimensions: e.target.checked } })}
+                                    />
+                                    Mõõdud
+                                </label>
+                            </div>
+                        </div>
+                    )}
+
                     {/* BULLET CONFIGURATION */}
                     {shapeTypeForControls === 'bullet' && (
                         <div className="space-y-3 pb-2 border-b border-gray-200">
