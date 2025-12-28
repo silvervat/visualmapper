@@ -9,6 +9,7 @@ import { getIconByName } from './IconPickerModal';
 
 interface CanvasProps {
   image: HTMLImageElement | null;
+  imageDimensions: { width: number; height: number };  // Fixed dimensions for layout
   shapes: Shape[];
   tool: ToolType;
   scale: number;
@@ -57,12 +58,15 @@ interface CanvasProps {
 const DEFAULT_ICON = 'Elekter';
 
 const Canvas: React.FC<CanvasProps> = ({
-  image, shapes, tool, scale, setScale, viewport, setViewport, onShapeAdd, onShapesAdd, onShapeUpdate, onShapesUpdate, onShapeUpdateEnd, onShapeDelete,
+  image, imageDimensions, shapes, tool, scale, setScale, viewport, setViewport, onShapeAdd, onShapesAdd, onShapeUpdate, onShapesUpdate, onShapeUpdateEnd, onShapeDelete,
   selectedIds, onSelect, onDuplicate, onReorder, pixelsPerMeter, onMeasure, onApplyCrop, showArea, onToolChange, allowOutsideDraw,
   onCoordClick, onCoordEdit, onCoordMove, coordRefs, showCoords, showDimensions, title, description, floor, preventOverlap,
   bulletCounter, incrementBullet, pageConfig = { headerHeight: 60, footerHeight: 100, fontSizeScale: 1.0, showLogo: true }, snapToBackground,
   gridConfig, onUpdateGridConfig, recentTools, onUseRecentTool, defaultStyles, axisCreationConfig, onShowAlert
 }) => {
+  // Use imageDimensions for layout (constant) vs image.naturalWidth/Height which may change during PDF re-rendering
+  const canvasWidth = imageDimensions.width || (image?.naturalWidth ?? 20000);
+  const canvasHeight = imageDimensions.height || (image?.naturalHeight ?? 20000);
   const containerRef = useRef<HTMLDivElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   
@@ -85,7 +89,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const nextAreaNumber = shapes.length > 0 ? Math.max(...shapes.map(s => s.areaNumber), 0) + 1 : 1;
   const nextColor = COLORS[(nextAreaNumber - 1) % COLORS.length];
-  const headerHeight = image ? Math.max(pageConfig.headerHeight, image.naturalHeight * 0.05) : 0;
+  const headerHeight = image ? Math.max(pageConfig.headerHeight, canvasHeight * 0.05) : 0;
   
   useEffect(() => {
     setMeasurePoints(null); setCropRect(null); setRotateRefLine(null); setSnapIndicator(null); setArrowPreview(null); setAxisPreview(null); setCalloutPreview(null);
@@ -123,7 +127,7 @@ const Canvas: React.FC<CanvasProps> = ({
   useEffect(() => { if (image) { const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight; const ctx = canvas.getContext('2d', { willReadFrequently: true }); if (ctx) { ctx.drawImage(image, 0, 0); offscreenCanvasRef.current = canvas; } } else { offscreenCanvasRef.current = null; } }, [image]);
   useEffect(() => { const container = containerRef.current; if (!container) return; const handleWheel = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); const zoomSensitivity = 0.001; const delta = Math.max(-0.5, Math.min(0.5, -e.deltaY * zoomSensitivity)); const newScale = Math.max(0.1, Math.min(20, scale * (1 + delta))); const rect = container.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top; const newViewportX = mouseX - (mouseX - viewport.x) * (newScale / scale); const newViewportY = mouseY - (mouseY - viewport.y) * (newScale / scale); setScale(newScale); setViewport({ ...viewport, x: newViewportX, y: newViewportY }); } }; container.addEventListener('wheel', handleWheel, { passive: false }); return () => container.removeEventListener('wheel', handleWheel); }, [scale, viewport, setScale, setViewport]);
 
-  const toWorld = useCallback((clientX: number, clientY: number): Point => { if (!containerRef.current) return { x: 0, y: 0 }; const rect = containerRef.current.getBoundingClientRect(); let x = (clientX - rect.left - viewport.x) / scale; let y = (clientY - rect.top - viewport.y) / scale; if (!allowOutsideDraw && image) { x = Math.max(0, Math.min(image.naturalWidth, x)); y = Math.max(0, Math.min(image.naturalHeight, y)); } return { x, y }; }, [scale, viewport, allowOutsideDraw, image]);
+  const toWorld = useCallback((clientX: number, clientY: number): Point => { if (!containerRef.current) return { x: 0, y: 0 }; const rect = containerRef.current.getBoundingClientRect(); let x = (clientX - rect.left - viewport.x) / scale; let y = (clientY - rect.top - viewport.y) / scale; if (!allowOutsideDraw && image) { x = Math.max(0, Math.min(canvasWidth, x)); y = Math.max(0, Math.min(canvasHeight, y)); } return { x, y }; }, [scale, viewport, allowOutsideDraw, image, canvasWidth, canvasHeight]);
   const toScreen = useCallback((x: number, y: number): Point => { return { x: x * scale + viewport.x, y: y * scale + viewport.y }; }, [scale, viewport]);
 
   const findImageEdge = (x: number, y: number): Point | null => { if (!offscreenCanvasRef.current) return null; const ctx = offscreenCanvasRef.current.getContext('2d'); if (!ctx) return null; const range = 10; const ix = Math.floor(x); const iy = Math.floor(y); const width = offscreenCanvasRef.current.width; const height = offscreenCanvasRef.current.height; if (ix < range || iy < range || ix >= width - range || iy >= height - range) return null; try { const imgData = ctx.getImageData(ix - range, iy - range, range * 2 + 1, range * 2 + 1); const data = imgData.data; let maxGradX = 0; let snapX = -1; let maxGradY = 0; let snapY = -1; const center = range; for (let i = 1; i < range * 2; i++) { const prev = (center * (range * 2 + 1) + (i - 1)) * 4; const curr = (center * (range * 2 + 1) + i) * 4; const diff = Math.abs((data[prev] + data[prev+1] + data[prev+2]) - (data[curr] + data[curr+1] + data[curr+2])); if (diff > maxGradX) { maxGradX = diff; snapX = i; } } for (let i = 1; i < range * 2; i++) { const prev = ((i - 1) * (range * 2 + 1) + center) * 4; const curr = (i * (range * 2 + 1) + center) * 4; const diff = Math.abs((data[prev] + data[prev+1] + data[prev+2]) - (data[curr] + data[curr+1] + data[curr+2])); if (diff > maxGradY) { maxGradY = diff; snapY = i; } } const threshold = 100; let resultX = x; let resultY = y; let snapped = false; if (maxGradX > threshold) { resultX = ix - range + snapX; snapped = true; } if (maxGradY > threshold) { resultY = iy - range + snapY; snapped = true; } return snapped ? { x: resultX, y: resultY } : null; } catch (e) { return null; } };
@@ -656,7 +660,7 @@ const Canvas: React.FC<CanvasProps> = ({
             onUpdateGridConfig({ ...gridConfig, offsetX: gridConfig.offsetX + worldDx, offsetY: gridConfig.offsetY + worldDy });
             setDragState(prev => ({ ...prev, startX: e.clientX, startY: e.clientY }));
         }
-        else if (dragState.mode === 'move' && dragState.initialShapesMap) { const rawDx = worldPos.x - dragState.startX; const rawDy = worldPos.y - dragState.startY; const movingShapeIds = Object.keys(dragState.initialShapesMap); const staticShapes = shapes.filter(s => !movingShapeIds.includes(s.id)); const tentativeMovingPoints: Point[] = []; for (const id in dragState.initialShapesMap) { dragState.initialShapesMap[id].forEach(p => { tentativeMovingPoints.push({ x: p.x + rawDx, y: p.y + rawDy }); }); } const snap = calculateSnapCorrection(tentativeMovingPoints, staticShapes, SNAP_THRESHOLD / scale); setSnapIndicator(snap.snapPoint); const finalDx = rawDx + snap.delta.x; const finalDy = rawDy + snap.delta.y; const newShapesData: { id: string; points: Point[] }[] = []; let outOfBounds = false; let hasCollision = false; for (const id in dragState.initialShapesMap) { const points = dragState.initialShapesMap[id].map(p => ({ x: p.x + finalDx, y: p.y + finalDy })); newShapesData.push({ id, points }); if (!allowOutsideDraw && image) { for(const p of points) { if (p.x < 0 || p.x > image.naturalWidth || p.y < 0 || p.y > image.naturalHeight) outOfBounds = true; } } if (preventOverlap && !dragState.isOverlappingAtStart) { const movingShape = shapes.find(s => s.id === id); if (movingShape && (movingShape.type === 'polygon' || movingShape.type === 'rectangle' || movingShape.type === 'square')) { const otherShapes = shapes.filter(s => !movingShapeIds.includes(s.id)); if (otherShapes.some(s => (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(points, s.points))) { hasCollision = true; } } } } if (!outOfBounds && !hasCollision) onShapesUpdate(newShapesData); }
+        else if (dragState.mode === 'move' && dragState.initialShapesMap) { const rawDx = worldPos.x - dragState.startX; const rawDy = worldPos.y - dragState.startY; const movingShapeIds = Object.keys(dragState.initialShapesMap); const staticShapes = shapes.filter(s => !movingShapeIds.includes(s.id)); const tentativeMovingPoints: Point[] = []; for (const id in dragState.initialShapesMap) { dragState.initialShapesMap[id].forEach(p => { tentativeMovingPoints.push({ x: p.x + rawDx, y: p.y + rawDy }); }); } const snap = calculateSnapCorrection(tentativeMovingPoints, staticShapes, SNAP_THRESHOLD / scale); setSnapIndicator(snap.snapPoint); const finalDx = rawDx + snap.delta.x; const finalDy = rawDy + snap.delta.y; const newShapesData: { id: string; points: Point[] }[] = []; let outOfBounds = false; let hasCollision = false; for (const id in dragState.initialShapesMap) { const points = dragState.initialShapesMap[id].map(p => ({ x: p.x + finalDx, y: p.y + finalDy })); newShapesData.push({ id, points }); if (!allowOutsideDraw && image) { for(const p of points) { if (p.x < 0 || p.x > canvasWidth || p.y < 0 || p.y > canvasHeight) outOfBounds = true; } } if (preventOverlap && !dragState.isOverlappingAtStart) { const movingShape = shapes.find(s => s.id === id); if (movingShape && (movingShape.type === 'polygon' || movingShape.type === 'rectangle' || movingShape.type === 'square')) { const otherShapes = shapes.filter(s => !movingShapeIds.includes(s.id)); if (otherShapes.some(s => (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(points, s.points))) { hasCollision = true; } } } } if (!outOfBounds && !hasCollision) onShapesUpdate(newShapesData); }
         else if (dragState.mode === 'resize_rect_side' && dragState.initialPoints && dragState.handleIndex !== undefined) { const idx = dragState.handleIndex; const p1 = dragState.initialPoints[idx]; const p2 = dragState.initialPoints[(idx + 1) % 4]; const edgeDx = p2.x - p1.x; const edgeDy = p2.y - p1.y; let nx = -edgeDy; let ny = edgeDx; const len = Math.sqrt(nx*nx + ny*ny); if (len > 0) { nx /= len; ny /= len; } const mDx = worldPos.x - dragState.startX; const mDy = worldPos.y - dragState.startY; const projection = mDx * nx + mDy * ny; const moveX = nx * projection; const moveY = ny * projection; const newPoints = [...dragState.initialPoints]; newPoints[idx] = { x: p1.x + moveX, y: p1.y + moveY }; newPoints[(idx + 1) % 4] = { x: p2.x + moveX, y: p2.y + moveY }; let hasCollision = false; if (preventOverlap) { const otherShapes = shapes.filter(s => s.id !== dragState.shapeId); hasCollision = otherShapes.some(s => (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(newPoints, s.points)); } if (!hasCollision) onShapeUpdate(dragState.shapeId!, { points: newPoints }); }
         else if (dragState.mode === 'resize_rect_corner' && dragState.initialPoints && dragState.handleIndex !== undefined) { const idx = dragState.handleIndex; const newPoints = [...dragState.initialPoints]; newPoints[idx] = { x: worldPos.x, y: worldPos.y }; const neighbor1Idx = (idx + 1) % 4; const neighbor2Idx = (idx + 3) % 4; const pInit = dragState.initialPoints[idx]; const pN1Init = dragState.initialPoints[neighbor1Idx]; if (Math.abs(pInit.x - pN1Init.x) < 1) { newPoints[neighbor1Idx] = { x: worldPos.x, y: pN1Init.y }; newPoints[neighbor2Idx] = { x: dragState.initialPoints[neighbor2Idx].x, y: worldPos.y }; } else { newPoints[neighbor1Idx] = { x: pN1Init.x, y: worldPos.y }; newPoints[neighbor2Idx] = { x: worldPos.x, y: dragState.initialPoints[neighbor2Idx].y }; } let hasCollision = false; if (preventOverlap) { const otherShapes = shapes.filter(s => s.id !== dragState.shapeId); hasCollision = otherShapes.some(s => (s.type === 'polygon' || s.type === 'rectangle' || s.type === 'square') && doPolygonsIntersect(newPoints, s.points)); } if (!hasCollision) onShapeUpdate(dragState.shapeId!, { points: newPoints }); }
     } else { if (alignmentGuides.length > 0) setAlignmentGuides([]); }
@@ -792,27 +796,27 @@ const Canvas: React.FC<CanvasProps> = ({
           className="relative"
        >
           {image && (
-             <img 
-                src={image.src} 
-                alt="Background" 
+             <img
+                src={image.src}
+                alt="Background"
                 className="absolute top-0 left-0 pointer-events-none select-none"
-                style={{ width: image.naturalWidth, height: image.naturalHeight }}
+                style={{ width: canvasWidth, height: canvasHeight }}
              />
           )}
 
           {/* Grid Layer */}
           {gridConfig && gridConfig.visible && (
-              <svg 
-                  width={image ? image.naturalWidth : 5000} 
-                  height={image ? image.naturalHeight : 5000} 
+              <svg
+                  width={canvasWidth}
+                  height={canvasHeight}
                   className="absolute top-0 left-0 pointer-events-none"
                   style={{ opacity: gridConfig.opacity }}
               >
                   <defs>
-                      <pattern 
-                          id="gridPattern" 
-                          width={(gridConfig.sizeMm * (pixelsPerMeter ? pixelsPerMeter/1000 : 1))} 
-                          height={(gridConfig.sizeMm * (pixelsPerMeter ? pixelsPerMeter/1000 : 1))} 
+                      <pattern
+                          id="gridPattern"
+                          width={(gridConfig.sizeMm * (pixelsPerMeter ? pixelsPerMeter/1000 : 1))}
+                          height={(gridConfig.sizeMm * (pixelsPerMeter ? pixelsPerMeter/1000 : 1))}
                           patternUnits="userSpaceOnUse"
                           x={gridConfig.offsetX}
                           y={gridConfig.offsetY}
@@ -823,12 +827,12 @@ const Canvas: React.FC<CanvasProps> = ({
                   <rect width="100%" height="100%" fill="url(#gridPattern)" />
               </svg>
           )}
-          
+
           {/* Main SVG Layer */}
           <svg
-             width={image ? image.naturalWidth : 20000}
-             height={image ? image.naturalHeight : 20000}
-             viewBox={`0 0 ${image ? image.naturalWidth : 20000} ${image ? image.naturalHeight : 20000}`}
+             width={canvasWidth}
+             height={canvasHeight}
+             viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
              className="absolute top-0 left-0 overflow-visible"
              style={{ background: 'transparent' }}
           >

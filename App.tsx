@@ -196,12 +196,13 @@ const App = () => {
         console.log(`PDF re-rendering: ${activeSheet.currentPdfResolution}px → ${requiredRes}px`);
         const newImage = await renderPdfAtResolution(activeSheet.pdfId!, requiredRes);
         if (newImage) {
+          // Only update imageData and resolution, NOT imageDimensions
+          // imageDimensions must stay constant to preserve shape coordinates
           setSheets(prev => prev.map(s =>
             s.id === activeSheet.id
               ? {
                   ...s,
                   imageData: newImage.src,
-                  imageDimensions: { width: newImage.width, height: newImage.height },
                   currentPdfResolution: requiredRes
                 }
               : s
@@ -884,8 +885,9 @@ const App = () => {
           
           {activeSheet && (
             <>
-                <Canvas 
-                    image={image} shapes={activeSheet.shapes} tool={tool} scale={activeSheet.scale}
+                <Canvas
+                    image={image} imageDimensions={activeSheet.imageDimensions}
+                    shapes={activeSheet.shapes} tool={tool} scale={activeSheet.scale}
                     setScale={(s) => updateActiveSheet({ scale: s })} viewport={activeSheet.viewport}
                     setViewport={(v) => updateActiveSheet({ viewport: v })} 
                     onShapeAdd={handleShapeAdd}
