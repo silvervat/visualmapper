@@ -216,7 +216,7 @@ export interface PageConfig {
 export interface Sheet {
     id: string;
     name: string;
-    imageData: string | null; 
+    imageData: string | null;
     thumbnailData?: string | null; // For hover preview
     imageDimensions: { width: number, height: number };
     shapes: Shape[];
@@ -228,6 +228,8 @@ export interface Sheet {
     title: string;
     description: string;
     gridConfig?: GridConfig;
+    pdfId?: string;  // For dynamic PDF re-rendering at different zoom levels
+    currentPdfResolution?: number;  // Current render resolution
 }
 
 // Project File Structure for Save/Load
