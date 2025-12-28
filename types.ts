@@ -230,6 +230,7 @@ export interface Sheet {
     gridConfig?: GridConfig;
     pdfId?: string;  // For dynamic PDF re-rendering at different zoom levels
     currentPdfResolution?: number;  // Current render resolution
+    pdfAspectRatio?: number;  // Original PDF aspect ratio (width/height)
 }
 
 // Project File Structure for Save/Load

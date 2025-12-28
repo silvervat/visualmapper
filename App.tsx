@@ -434,6 +434,8 @@ const App = () => {
         let pdfId: string | undefined = undefined;
         let currentPdfResolution: number | undefined = undefined;
 
+        let pdfAspectRatio: number | undefined = undefined;
+
         if (file.type === 'application/pdf') {
             const result = await loadPdfPage(file);
             if (result) {
@@ -442,6 +444,8 @@ const App = () => {
                 h = result.image.height;
                 pdfId = result.pdfId;
                 currentPdfResolution = 6000; // Initial resolution
+                pdfAspectRatio = result.aspectRatio;
+                console.log(`PDF loaded: ${w}x${h}, aspect ratio: ${pdfAspectRatio.toFixed(3)}`);
             }
         } else {
             imgData = await new Promise((resolve) => {
@@ -469,7 +473,8 @@ const App = () => {
             title: file.name.replace(/\.[^/.]+$/, ""),
             calibrationData,
             pdfId,
-            currentPdfResolution
+            currentPdfResolution,
+            pdfAspectRatio
         };
 
         setSheets(prev => [...prev, updatedSheet]);
