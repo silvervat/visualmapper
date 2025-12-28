@@ -30,10 +30,11 @@ export const loadPdfPage = async (file: File, pageNumber: number = 1): Promise<{
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
+    // Cast to any to handle pdfjs-dist type strictness
     await page.render({
       canvasContext: context,
       viewport: viewport,
-    }).promise;
+    } as any).promise;
 
     const img = new Image();
     img.src = canvas.toDataURL('image/png');
