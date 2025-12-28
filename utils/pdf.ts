@@ -14,12 +14,12 @@ export const loadPdfPage = async (file: File, pageNumber: number = 1): Promise<{
     const originalWidthPt = originalViewport.width;  // Width in PDF points
     const originalHeightPt = originalViewport.height; // Height in PDF points
 
-    // Calculate scale to achieve high resolution (target ~14000px on longer side, matching blank sheet quality)
-    // This allows detailed zooming while keeping file size reasonable
-    const maxDimension = 14000;
-    const scaleForWidth = maxDimension / originalWidthPt;
-    const scaleForHeight = maxDimension / originalHeightPt;
-    const renderScale = Math.min(scaleForWidth, scaleForHeight);
+    // Calculate scale to achieve high resolution
+    // Target 6000px on longer side - good balance between quality and browser compatibility
+    // (14000px caused canvas memory issues in some browsers)
+    const maxDimension = 6000;
+    const longerSide = Math.max(originalWidthPt, originalHeightPt);
+    const renderScale = maxDimension / longerSide;
 
     const viewport = page.getViewport({ scale: renderScale });
 
@@ -27,8 +27,8 @@ export const loadPdfPage = async (file: File, pageNumber: number = 1): Promise<{
     const context = canvas.getContext('2d');
     if (!context) return null;
 
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
 
     // Cast to any to handle pdfjs-dist type strictness
     await page.render({
@@ -38,7 +38,10 @@ export const loadPdfPage = async (file: File, pageNumber: number = 1): Promise<{
 
     const img = new Image();
     img.src = canvas.toDataURL('image/png');
-    await new Promise((resolve) => { img.onload = resolve; });
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
 
     // Return original dimensions in points for potential calibration
     // 1 point = 1/72 inch = 0.3528 mm
