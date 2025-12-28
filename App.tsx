@@ -382,18 +382,53 @@ const App = () => {
     setIsLoading(true);
     try {
         let imgData = ''; let w = 0, h = 0;
+        let calibrationData: { pixels: number; meters: number }[] = [];
+
         if (file.type === 'application/pdf') {
             const result = await loadPdfPage(file);
-            if (result) { imgData = result.image.src; w = result.image.width; h = result.image.height; }
+            if (result) {
+                imgData = result.image.src;
+                w = result.image.width;
+                h = result.image.height;
+                // PDF original dimensions are in points (72 points = 1 inch = 25.4mm)
+                // We can use this to provide initial calibration based on print size
+                // but user should still calibrate for architectural drawings with specific scales
+            }
         } else {
-             imgData = await new Promise((resolve) => { const reader = new FileReader(); reader.onload = (e) => resolve(e.target?.result as string); reader.readAsDataURL(file); });
-             const tempImg = new Image(); tempImg.src = imgData; await new Promise(r => tempImg.onload = r); w = tempImg.width; h = tempImg.height;
+            imgData = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target?.result as string);
+                reader.readAsDataURL(file);
+            });
+            const tempImg = new Image();
+            tempImg.src = imgData;
+            await new Promise(r => tempImg.onload = r);
+            w = tempImg.width;
+            h = tempImg.height;
         }
-        const vw = window.innerWidth - 320; const vh = window.innerHeight - 60; const fitScale = Math.min(vw / w, vh / h) * 0.9;
-        const updatedSheet = { ...sheet, imageData: imgData, imageDimensions: { width: w, height: h }, scale: fitScale, viewport: { x: (vw - w * fitScale) / 2, y: 20, scale: fitScale }, title: file.name.replace(/\.[^/.]+$/, "") };
+
+        const vw = window.innerWidth - 320;
+        const vh = window.innerHeight - 60;
+        const fitScale = Math.min(vw / w, vh / h) * 0.9;
+
+        const updatedSheet = {
+            ...sheet,
+            imageData: imgData,
+            imageDimensions: { width: w, height: h },
+            scale: fitScale,
+            viewport: { x: (vw - w * fitScale) / 2, y: 20, scale: fitScale },
+            title: file.name.replace(/\.[^/.]+$/, ""),
+            calibrationData
+        };
+
         setSheets(prev => [...prev, updatedSheet]);
         setActiveSheetId(sheet.id);
-    } catch (err) { console.error(err); showError('Viga', 'Viga faili laadimisel.'); } finally { setIsLoading(false); }
+    } catch (err) {
+        console.error(err);
+        showError('Viga', 'Viga faili laadimisel.');
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   const handleGlobalDrop = (e: React.DragEvent) => {
