@@ -15,7 +15,7 @@ import CranePickerModal from './components/CranePickerModal';
 import AlertModal, { useAlert } from './components/AlertModal';
 import ExportModal, { ExportOptions } from './components/ExportModal';
 import { Shape, ToolType, Viewport, CoordinateReference, Point, ProjectFile, ShapeType, PageConfig, SavedStyle, Sheet, RecentTool, AxisConfig, CraneModel } from './types';
-import { loadPdfPage } from './utils/pdf';
+import { loadPdfPage, renderPdfAtResolution, getRequiredResolution } from './utils/pdf';
 import { doPolygonsIntersect, toRoman } from './utils/geometry';
 import { exportToPdf, exportToDxf, exportToGeoJson, exportToPng, exportToIfc } from './utils/export';
 import { COLORS } from './constants';
@@ -177,6 +177,53 @@ const App = () => {
         }
     }
   }, [tool, activeSheetId]);
+
+  // PDF Dynamic Re-rendering based on zoom level
+  const pdfRerenderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!activeSheet?.pdfId || !activeSheet.currentPdfResolution) return;
+
+    const checkAndRerender = async () => {
+      const containerWidth = containerDimensions.width || window.innerWidth - 320;
+      const requiredRes = getRequiredResolution(
+        activeSheet.scale,
+        activeSheet.imageDimensions.width,
+        containerWidth
+      );
+
+      // Only re-render if we need significantly higher resolution (>30% more)
+      if (requiredRes > activeSheet.currentPdfResolution * 1.3) {
+        console.log(`PDF re-rendering: ${activeSheet.currentPdfResolution}px → ${requiredRes}px`);
+        const newImage = await renderPdfAtResolution(activeSheet.pdfId!, requiredRes);
+        if (newImage) {
+          setSheets(prev => prev.map(s =>
+            s.id === activeSheet.id
+              ? {
+                  ...s,
+                  imageData: newImage.src,
+                  imageDimensions: { width: newImage.width, height: newImage.height },
+                  currentPdfResolution: requiredRes
+                }
+              : s
+          ));
+          // Update the image object for Canvas
+          setImage(newImage);
+        }
+      }
+    };
+
+    // Debounce re-rendering to avoid too frequent updates
+    if (pdfRerenderTimeoutRef.current) {
+      clearTimeout(pdfRerenderTimeoutRef.current);
+    }
+    pdfRerenderTimeoutRef.current = setTimeout(checkAndRerender, 500);
+
+    return () => {
+      if (pdfRerenderTimeoutRef.current) {
+        clearTimeout(pdfRerenderTimeoutRef.current);
+      }
+    };
+  }, [activeSheet?.scale, activeSheet?.pdfId, activeSheet?.currentPdfResolution, containerDimensions.width]);
 
   // Compute Scale
   const pixelsPerMeter = useMemo(() => {
@@ -383,6 +430,8 @@ const App = () => {
     try {
         let imgData = ''; let w = 0, h = 0;
         let calibrationData: { pixels: number; meters: number }[] = [];
+        let pdfId: string | undefined = undefined;
+        let currentPdfResolution: number | undefined = undefined;
 
         if (file.type === 'application/pdf') {
             const result = await loadPdfPage(file);
@@ -390,9 +439,8 @@ const App = () => {
                 imgData = result.image.src;
                 w = result.image.width;
                 h = result.image.height;
-                // PDF original dimensions are in points (72 points = 1 inch = 25.4mm)
-                // We can use this to provide initial calibration based on print size
-                // but user should still calibrate for architectural drawings with specific scales
+                pdfId = result.pdfId;
+                currentPdfResolution = 6000; // Initial resolution
             }
         } else {
             imgData = await new Promise((resolve) => {
@@ -418,7 +466,9 @@ const App = () => {
             scale: fitScale,
             viewport: { x: (vw - w * fitScale) / 2, y: 20, scale: fitScale },
             title: file.name.replace(/\.[^/.]+$/, ""),
-            calibrationData
+            calibrationData,
+            pdfId,
+            currentPdfResolution
         };
 
         setSheets(prev => [...prev, updatedSheet]);
