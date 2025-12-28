@@ -101,11 +101,16 @@ export const loadPdfPage = async (
     const originalWidthPt = originalViewport.width;
     const originalHeightPt = originalViewport.height;
 
-    // Initial render at moderate resolution (faster loading)
+    console.log(`PDF original dimensions: ${originalWidthPt} x ${originalHeightPt} points`);
+    console.log(`PDF aspect ratio: ${(originalWidthPt / originalHeightPt).toFixed(3)}`);
+
+    // Calculate render scale to achieve target resolution on the LONGER side
     const longerSide = Math.max(originalWidthPt, originalHeightPt);
     const renderScale = initialResolution / longerSide;
 
     const viewport = page.getViewport({ scale: renderScale });
+
+    console.log(`Rendering at scale ${renderScale.toFixed(2)}, canvas: ${Math.round(viewport.width)} x ${Math.round(viewport.height)}`);
 
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -128,6 +133,8 @@ export const loadPdfPage = async (
       img.onload = resolve;
       img.onerror = reject;
     });
+
+    console.log(`Final image size: ${img.width} x ${img.height}, aspect ratio: ${(img.width / img.height).toFixed(3)}`);
 
     return {
       image: img,
